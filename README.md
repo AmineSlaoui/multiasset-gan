@@ -28,15 +28,30 @@ python -m ipykernel install --user --name gan-project --display-name "gan-projec
 ### 4. Launch Jupyter
 
 ```bash
-jupyter notebook notebooks/extract_data.ipynb
+jupyter notebook
 ```
 
-## What it does
+## Notebooks
 
-Runs `notebooks/extract_data.ipynb`, which downloads raw OHLCV data from Yahoo Finance (2017–2026) and saves three CSV files:
+### `notebooks/extract_data.ipynb`
+Downloads raw OHLCV data from Yahoo Finance (2017–2026) and saves:
 
 ```
 data/raw_btc.csv       # Bitcoin (BTC-USD)
 data/raw_sp500.csv     # S&P 500 (^GSPC)
 data/raw_gold.csv      # Gold Futures (GC=F)
+```
+
+### `notebooks/preprocess.ipynb`
+Aligns the three assets to a common trading calendar and computes log returns. Run this after `extract_data.ipynb`.
+
+Steps:
+1. Resamples BTC to business days (last close of each business day)
+2. Inner-joins all three on the S&P 500 (NYSE) trading calendar
+3. Computes daily log returns: `ln(P_t / P_{t-1})`
+
+Outputs:
+```
+data/aligned_prices.csv   # closing prices on shared trading days
+data/log_returns.csv      # daily log returns for all three assets
 ```
