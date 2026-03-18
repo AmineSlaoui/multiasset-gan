@@ -33,25 +33,25 @@ jupyter notebook
 
 ## Notebooks
 
-### `notebooks/extract_data.ipynb`
-Downloads raw OHLCV data from Yahoo Finance (2017–2026) and saves:
 
+### `notebooks/extract_stocks.ipynb`
+Downloads daily OHLCV data for 10 stocks from **WRDS** (CRSP Daily Stock File) covering January 1, 2011 to January 1, 2026.
+
+**Requires a WRDS account.** You will be prompted for your WRDS username and password when running the notebook. Request access at [wrds-www.wharton.upenn.edu](https://wrds-www.wharton.upenn.edu).
+
+Stocks included:
 ```
-data/raw_btc.csv       # Bitcoin (BTC-USD)
-data/raw_sp500.csv     # S&P 500 (^GSPC)
-data/raw_gold.csv      # Gold Futures (GC=F)
+AAPL   # Apple
+MSFT   # Microsoft
+NVDA   # Nvidia
+AMZN   # Amazon
+JPM    # JPMorgan Chase
+JNJ    # Johnson & Johnson
+XOM    # ExxonMobil
+TSLA   # Tesla
+NFLX   # Netflix
+V      # Visa
 ```
 
-### `notebooks/preprocess.ipynb`
-Aligns the three assets to a common trading calendar and computes log returns. Run this after `extract_data.ipynb`.
+Output saved to `data/stocks/raw_<ticker>.csv`.
 
-Steps:
-1. Resamples BTC to business days (last close of each business day)
-2. Inner-joins all three on the S&P 500 (NYSE) trading calendar
-3. Computes daily log returns: `ln(P_t / P_{t-1})`
-
-Outputs:
-```
-data/aligned_prices.csv   # closing prices on shared trading days
-data/log_returns.csv      # daily log returns for all three assets
-```
