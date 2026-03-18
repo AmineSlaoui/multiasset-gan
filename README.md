@@ -55,3 +55,22 @@ V      # Visa
 
 Output saved to `data/stocks/raw_<ticker>.csv`.
 
+### `notebooks/extract_commodities.ipynb`
+Downloads daily OHLCV data for 10 commodity futures from **Yahoo Finance** via `yfinance` covering January 1, 2011 to January 1, 2026. Uses `curl_cffi` to impersonate a browser and bypass rate limits.
+
+Commodities included:
+```
+GC=F   # Gold
+SI=F   # Silver
+CL=F   # Crude Oil (WTI)
+NG=F   # Natural Gas
+HG=F   # Copper
+ZW=F   # Wheat
+ZC=F   # Corn
+ZS=F   # Soybeans
+PL=F   # Platinum
+KC=F   # Coffee
+```
+
+Output saved to `data/commodities/raw_<name>.csv`.
+
