@@ -72,3 +72,22 @@ KC=F   # Coffee
 
 Output saved to `data/commodities/raw_<name>.csv`.
 
+### `notebooks/extract_bonds.ipynb`
+Downloads daily OHLCV data for 10 bond ETFs from **Yahoo Finance** via `yfinance` covering January 1, 2011 to January 1, 2026.
+
+ETFs included:
+```
+SHY   # iShares 1-3 Year Treasury Bond ETF
+IEF   # iShares 7-10 Year Treasury Bond ETF
+TLT   # iShares 20+ Year Treasury Bond ETF
+LQD   # iShares Investment Grade Corporate Bond ETF
+HYG   # iShares High Yield Corporate Bond ETF
+MUB   # iShares National Municipal Bond ETF
+TIP   # iShares TIPS Bond ETF
+EMB   # iShares Emerging Market Bond ETF
+AGG   # iShares Core US Aggregate Bond ETF
+BND   # Vanguard Total Bond Market ETF
+```
+
+Output saved to `data/bonds/raw_<ticker>.csv`.
+
