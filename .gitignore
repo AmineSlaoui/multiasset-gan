@@ -1,8 +1,6 @@
 # Jupyter
 .ipynb_checkpoints/
 
-# Data (often large)
-data/
 
 # Python
 __pycache__/
