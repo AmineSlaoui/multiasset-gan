@@ -35,9 +35,7 @@ jupyter notebook
 
 
 ### `notebooks/extract_stocks.ipynb`
-Downloads daily OHLCV data for 10 stocks from **WRDS** (CRSP Daily Stock File) covering January 1, 2011 to January 1, 2026.
-
-**Requires a WRDS account.** You will be prompted for your WRDS username and password when running the notebook. Request access at [wrds-www.wharton.upenn.edu](https://wrds-www.wharton.upenn.edu).
+Downloads daily OHLCV data for 10 stocks from **Yahoo Finance** via `yfinance` covering January 1, 2011 to January 1, 2026. Uses `curl_cffi` to impersonate a browser and bypass rate limits.
 
 Stocks included:
 ```
