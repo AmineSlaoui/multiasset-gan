@@ -33,7 +33,9 @@ import random
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
+from torch.nn.utils import weight_norm
 
 
 def resolve_repo_root(start: Optional[Path] = None) -> Path:
@@ -333,10 +335,6 @@ def build_dataloader(prepared_data: PreparedMarketData, config: MarketGANConfig,
     return DataLoader(dataset, batch_size=config.batch_size, shuffle=shuffle, drop_last=True)
 
 # %%
-import torch.nn as nn
-from torch.nn.utils import weight_norm
-
-
 def initialize_linear(layer: nn.Linear) -> None:
     nn.init.xavier_uniform_(layer.weight)
     if layer.bias is not None:
@@ -768,50 +766,48 @@ def build_training_stack(
     return prepared_data, dataset, dataloader, generator, critic, trainer
 
 
-config = MarketGANConfig()
+def run_smoke_test() -> None:
+    config = MarketGANConfig()
 
-print(f"Repo root: {REPO_ROOT}")
-print(f"Generator receptive field: {config.receptive_field}")
-print(f"Warmup trimmed from each sequence: {config.warmup_period}")
-print(f"Total sequence length expected by the trainer: {config.total_sequence_length}")
+    print(f"Repo root: {REPO_ROOT}")
+    print(f"Generator receptive field: {config.receptive_field}")
+    print(f"Warmup trimmed from each sequence: {config.warmup_period}")
+    print(f"Total sequence length expected by the trainer: {config.total_sequence_length}")
 
-dummy_dimensions = ModelDimensions(num_assets=30, num_factors=1, num_covariates=8)
-generator = MarketGenerator(dummy_dimensions, config).to(config.device)
-critic = MarketCritic(dummy_dimensions, config).to(config.device)
+    dummy_dimensions = ModelDimensions(num_assets=30, num_factors=1, num_covariates=8)
+    generator = MarketGenerator(dummy_dimensions, config).to(config.device)
+    critic = MarketCritic(dummy_dimensions, config).to(config.device)
 
-batch_size = 2
-sequence_length = config.total_sequence_length
-dummy_covariates = torch.randn(batch_size, sequence_length, dummy_dimensions.num_covariates, device=config.device)
-dummy_factors = torch.randn(batch_size, sequence_length, dummy_dimensions.num_factors, device=config.device)
-dummy_alpha_hat = torch.randn(batch_size, sequence_length, dummy_dimensions.num_assets, device=config.device) * 0.001
-dummy_beta_hat = torch.randn(
-    batch_size,
-    sequence_length,
-    dummy_dimensions.num_assets,
-    dummy_dimensions.num_factors,
-    device=config.device,
-) * 0.05
-dummy_sigma_hat = torch.rand(batch_size, sequence_length, dummy_dimensions.num_assets, device=config.device) * 0.02 + 0.001
+    batch_size = 2
+    sequence_length = config.total_sequence_length
+    dummy_covariates = torch.randn(batch_size, sequence_length, dummy_dimensions.num_covariates, device=config.device)
+    dummy_factors = torch.randn(batch_size, sequence_length, dummy_dimensions.num_factors, device=config.device)
+    dummy_alpha_hat = torch.randn(batch_size, sequence_length, dummy_dimensions.num_assets, device=config.device) * 0.001
+    dummy_beta_hat = torch.randn(
+        batch_size,
+        sequence_length,
+        dummy_dimensions.num_assets,
+        dummy_dimensions.num_factors,
+        device=config.device,
+    ) * 0.05
+    dummy_sigma_hat = torch.rand(batch_size, sequence_length, dummy_dimensions.num_assets, device=config.device) * 0.02 + 0.001
 
-with torch.no_grad():
-    generated = generator(
-        covariates=dummy_covariates,
-        factor_returns=dummy_factors,
-        alpha_hat=dummy_alpha_hat,
-        beta_hat=dummy_beta_hat,
-        sigma_hat=dummy_sigma_hat,
-        trim_output=True,
-    )
-    critic_scores = critic(generated["generated_returns"], dummy_covariates)
+    with torch.no_grad():
+        generated = generator(
+            covariates=dummy_covariates,
+            factor_returns=dummy_factors,
+            alpha_hat=dummy_alpha_hat,
+            beta_hat=dummy_beta_hat,
+            sigma_hat=dummy_sigma_hat,
+            trim_output=True,
+        )
+        critic_scores = critic(generated["generated_returns"], dummy_covariates)
 
-print("Generated returns shape:", tuple(generated["generated_returns"].shape))
-print("Trimmed returns shape:", tuple(generated["generated_returns_trimmed"].shape))
-print("Critic scores shape:", tuple(critic_scores.shape))
+    print("Generated returns shape:", tuple(generated["generated_returns"].shape))
+    print("Trimmed returns shape:", tuple(generated["generated_returns_trimmed"].shape))
+    print("Critic scores shape:", tuple(critic_scores.shape))
 
-# Quand on passera au training reelement:
-# prepared_data, dataset, dataloader, generator, critic, trainer = build_training_stack(config)
-# first_batch = next(iter(dataloader))
-# critic_metrics = trainer.critic_step(first_batch)
-# generator_metrics = trainer.generator_step(first_batch)
-# history = trainer.fit(dataloader, num_epochs=200)
+
+if __name__ == "__main__":
+    run_smoke_test()
 

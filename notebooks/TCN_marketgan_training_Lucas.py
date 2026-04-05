@@ -12,9 +12,10 @@ import torch
 from torch.utils.data import DataLoader, Dataset, Subset
 from tqdm.auto import tqdm
 
-THIS_DIR = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
-if str(THIS_DIR) not in sys.path:
-    sys.path.append(str(THIS_DIR))
+MODULE_FILE = globals().get("__file__")
+ROOT_DIR = Path(MODULE_FILE).resolve().parent.parent if MODULE_FILE else Path.cwd()
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from notebooks.TCN_marketgan_full_Lucas import (
     REPO_ROOT,
