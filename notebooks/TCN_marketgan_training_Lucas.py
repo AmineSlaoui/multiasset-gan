@@ -35,7 +35,7 @@ def count_parameters(module: torch.nn.Module) -> int:
 
 @dataclass
 class TrainingRunConfig:
-    num_epochs: int = 200
+    num_epochs: int = 25
     train_fraction: float = 0.80
     num_workers: int = 0
     pin_memory: bool = True
@@ -475,8 +475,9 @@ def generate_synthetic_sample(
 
 
 if __name__ == "__main__":
-    RUN_TRAINING = False
+    RUN_TRAINING = True
     RUN_GENERATION_EXAMPLE = False
+    
 
     model_config = MarketGANConfig(
         batch_size=16,
@@ -485,7 +486,7 @@ if __name__ == "__main__":
         learning_rate_critic=1e-4,
     )
     run_config = TrainingRunConfig(
-        num_epochs=200,
+        num_epochs=25,
         train_fraction=0.80,
         checkpoint_every=10,
         run_name="marketgan_proxy_factor_run",

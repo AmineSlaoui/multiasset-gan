@@ -709,11 +709,11 @@ class MarketGANTrainer:
         }
 
     def fit(self, dataloader: DataLoader, num_epochs: int, log_every: int = 25) -> pd.DataFrame:
-        history = []
+        history: list[Dict[str, float]] = []
         global_step = 0
         for epoch in range(num_epochs):
             for batch in dataloader:
-                critic_metrics = {}
+                critic_metrics: Dict[str, float] = {}
                 for _ in range(self.config.critic_steps):
                     critic_metrics = self.critic_step(batch)
                 generator_metrics = self.generator_step(batch)
