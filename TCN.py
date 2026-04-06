@@ -47,14 +47,12 @@ class TemporalBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         residual = x if self.residual_proj is None else self.residual_proj(x)
-
-        # causal1 / causal2 handle the left-padding; conv1/conv2 are the weight-normed inner convs
         out = nn.functional.pad(x,   (self.causal1.padding, 0))
         out = self.dropout1(self.relu1(self.conv1(out)))
         out = nn.functional.pad(out, (self.causal2.padding, 0))
         out = self.dropout2(self.relu2(self.conv2(out)))
 
-        return out + residual                                 # eq. (6) in paper
+        return out + residual                                
 
 class TCN(nn.Module):
     def __init__(
@@ -96,11 +94,7 @@ class TCN(nn.Module):
         out = self.output_proj(out)# (B, out_channels, T)
         return out
 
-
-# ---------------------------------------------------------------------------
-# Generator TCN  (80 hidden channels)
-# ---------------------------------------------------------------------------
-
+# Generator TCN
 class GeneratorTCN(nn.Module):
     def __init__(
         self,
@@ -116,10 +110,7 @@ class GeneratorTCN(nn.Module):
     ):
         super().__init__()
 
-        # ϕ_I  (shared)
         self.input_proj = nn.Conv1d(in_channels, hidden_channels, kernel_size=1)
-
-        # g_1 … g_L  (shared)
         blocks = []
         for i in range(num_blocks):
             dilation = dilation_base ** i
@@ -134,7 +125,6 @@ class GeneratorTCN(nn.Module):
             )
         self.blocks = nn.Sequential(*blocks)
 
-        # Three separate ϕ_O heads  (NOT shared)
         self.alpha_proj = nn.Conv1d(hidden_channels, out_alpha, kernel_size=1)
         self.beta_proj  = nn.Conv1d(hidden_channels, out_beta,  kernel_size=1)
         self.sigma_proj = nn.Conv1d(hidden_channels, out_sigma, kernel_size=1)
@@ -158,6 +148,8 @@ class GeneratorTCN(nn.Module):
 
         return f_alpha, f_beta, f_sigma
 
+
+# Discriminator TCN
 class DiscriminatorTCN(nn.Module):
     def __init__(
         self,
