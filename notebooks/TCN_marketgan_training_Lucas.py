@@ -37,7 +37,7 @@ def count_parameters(module: torch.nn.Module) -> int:
 class TrainingRunConfig:
     num_epochs: int = 25
     train_fraction: float = 0.80
-    num_workers: int = 0
+    num_workers: int = 8
     pin_memory: bool = True
     show_progress: bool = True
     log_every_epoch: int = 1
@@ -491,6 +491,8 @@ if __name__ == "__main__":
         checkpoint_every=10,
         run_name="marketgan_proxy_factor_run",
     )
+
+    print("Device:", model_config.device)
 
     prepared_data, full_dataset, train_dataset, validation_dataset, train_loader, validation_loader, generator, critic, trainer = build_full_training_stack(
         config=model_config,
