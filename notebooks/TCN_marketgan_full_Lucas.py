@@ -114,6 +114,7 @@ class MarketGANConfig:
     learning_rate_critic: float = 1e-4
     adam_betas: Tuple[float, float] = (0.0, 0.9)
     gradient_penalty_lambda: float = 10.0
+    vol_penalty_lambda: float = 5.0
     sigma_floor: float = 1e-6
     standardize_covariates: bool = True
 
@@ -700,16 +701,26 @@ class MarketGANTrainer:
             alpha_hat=batch["alpha_hat"],
             beta_hat=batch["beta_hat"],
             sigma_hat=batch["sigma_hat"],
-            trim_output=False,
+            trim_output=True,
         )
         fake_scores = self.critic(generated["generated_returns"], batch["covariates"], trim_warmup=True)
-        loss = -fake_scores.mean()
+        adversarial_loss = -fake_scores.mean()
+
+        # Vol regularization — penalize when generated vol deviates from real vol
+        fake_trimmed = generated["generated_returns_trimmed"]                        # (B, T, N)
+        real_trimmed = batch["real_returns"][:, self.config.warmup_period:, :]       # (B, T, N)
+        fake_vol = fake_trimmed.std(dim=1)   # (B, N)
+        real_vol = real_trimmed.std(dim=1)   # (B, N)
+        vol_penalty = ((fake_vol - real_vol) ** 2).mean()
+
+        loss = adversarial_loss + self.config.vol_penalty_lambda * vol_penalty
         loss.backward()
         self.generator_optimizer.step()
 
         return {
-            "generator_loss": float(loss.detach().cpu()),
-            "generator_score": float(fake_scores.mean().detach().cpu()),
+            "generator_loss":    float(loss.detach().cpu()),
+            "generator_score":   float(fake_scores.mean().detach().cpu()),
+            "vol_penalty":       float(vol_penalty.detach().cpu()),
         }
 
     def fit(self, dataloader: DataLoader, num_epochs: int, log_every: int = 25) -> pd.DataFrame:

@@ -97,6 +97,7 @@ def build_train_validation_loaders(
         drop_last=drop_last_train,
         num_workers=run_config.num_workers,
         pin_memory=pin_memory,
+        persistent_workers=run_config.num_workers > 0,
     )
     validation_loader = DataLoader(
         validation_dataset,
@@ -105,6 +106,7 @@ def build_train_validation_loaders(
         drop_last=False,
         num_workers=run_config.num_workers,
         pin_memory=pin_memory,
+        persistent_workers=run_config.num_workers > 0,
     )
     return train_dataset, validation_dataset, train_loader, validation_loader
 
@@ -376,7 +378,14 @@ def train_market_gan(
             history_frame.to_csv(run_config.run_dir / "history.csv", index=False)
 
         if (epoch + 1) % run_config.log_every_epoch == 0:
-            print(epoch_metrics)
+            print(f"\n── Epoch {epoch_metrics['epoch'] + 1}/{run_config.num_epochs} ──────────────────────────")
+            print(f"  Train │ critic: {epoch_metrics['train_critic_loss']:+.4f}  "
+                  f"gen: {epoch_metrics['train_generator_loss']:8.4f}  "
+                  f"vol_penalty: {epoch_metrics.get('train_vol_penalty', 0):.2e}  "
+                  f"gp: {epoch_metrics['train_gradient_penalty']:.4f}")
+            print(f"  Val   │ wasserstein: {epoch_metrics['val_wasserstein_estimate']:.4f}  "
+                  f"mean_gap: {epoch_metrics['val_mean_gap']:.6f}  "
+                  f"vol_gap: {epoch_metrics['val_vol_gap']:.6f}")
 
     history_frame = pd.DataFrame(history)
     if run_config.plot_history:
@@ -480,23 +489,43 @@ if __name__ == "__main__":
     
 
     model_config = MarketGANConfig(
-        batch_size=16,
+        batch_size=32,
         target_horizon=252 * 4,
         learning_rate_generator=1e-4,
         learning_rate_critic=1e-4,
+        critic_steps=3,
     )
     run_config = TrainingRunConfig(
-        num_epochs=25,
+        num_epochs=100,
         train_fraction=0.80,
         checkpoint_every=10,
-        run_name="marketgan_proxy_factor_run",
+        run_name="marketgan_run3_volreg_normfactors",
     )
 
     print("Device:", model_config.device)
 
+    # ── 3-factor model: equity / bond / commodity ─────────────────────────────
+    returns_raw = pd.read_csv(model_config.returns_path, parse_dates=["Date"]).set_index("Date")
+
+    EQUITY_COLS    = ["aapl", "amzn", "jnj", "jpm", "msft", "nflx", "nvda", "tsla", "v", "xom"]
+    BOND_COLS      = ["agg", "bnd", "emb", "hyg", "ief", "lqd", "mub", "shy", "tip", "tlt"]
+    COMMODITY_COLS = ["coffee", "copper", "corn", "crude_oil", "gold", "natural_gas", "platinum", "silver", "soybeans", "wheat"]
+
+    factor_frame = pd.DataFrame({
+        "equity_factor":    returns_raw[EQUITY_COLS].mean(axis=1),
+        "bond_factor":      returns_raw[BOND_COLS].mean(axis=1),
+        "commodity_factor": returns_raw[COMMODITY_COLS].mean(axis=1),
+    })
+    # Normalize factors to zero mean and unit std to avoid amplifying vol
+    factor_frame = (factor_frame - factor_frame.mean()) / factor_frame.std()
+
+    print("Factor frame shape:", factor_frame.shape)
+    print("Factors:", factor_frame.columns.tolist())
+
     prepared_data, full_dataset, train_dataset, validation_dataset, train_loader, validation_loader, generator, critic, trainer = build_full_training_stack(
         config=model_config,
         run_config=run_config,
+        factor_frame=factor_frame,
     )
 
     print("Assets:", prepared_data.dimensions.num_assets)
