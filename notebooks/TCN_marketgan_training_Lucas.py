@@ -130,7 +130,7 @@ def build_full_training_stack(
         config=config,
         run_config=run_config,
     )
-    generator = MarketGenerator(prepared_data.dimensions, config).to(config.device)
+    generator = MarketGenerator(prepared_data.dimensions, config, cholesky_L=prepared_data.residual_cholesky).to(config.device)
     critic = MarketCritic(prepared_data.dimensions, config).to(config.device)
     trainer = MarketGANTrainer(generator=generator, critic=critic, config=config)
     return prepared_data, dataset, train_dataset, validation_dataset, train_loader, validation_loader, generator, critic, trainer
@@ -499,7 +499,7 @@ if __name__ == "__main__":
         num_epochs=100,
         train_fraction=0.80,
         checkpoint_every=10,
-        run_name="marketgan_run3_volreg_normfactors",
+        run_name="marketgan_run4_cholesky_ratiovol",
     )
 
     print("Device:", model_config.device)

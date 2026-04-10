@@ -114,7 +114,7 @@ class MarketGANConfig:
     learning_rate_critic: float = 1e-4
     adam_betas: Tuple[float, float] = (0.0, 0.9)
     gradient_penalty_lambda: float = 10.0
-    vol_penalty_lambda: float = 5.0
+    vol_penalty_lambda: float = 50.0
     sigma_floor: float = 1e-6
     standardize_covariates: bool = True
 
@@ -155,6 +155,7 @@ class PreparedMarketData:
     beta_hat: np.ndarray
     sigma_hat: np.ndarray
     scalers: Dict[str, ZScoreScaler]
+    residual_cholesky: np.ndarray  # (num_assets, num_assets) lower triangular Cholesky of return correlation matrix
 
     @property
     def dimensions(self) -> ModelDimensions:
@@ -294,6 +295,11 @@ def prepare_marketgan_data(
         scalers["covariates"] = ZScoreScaler.fit(aligned_covariates)
         aligned_covariates = scalers["covariates"].transform(aligned_covariates)
 
+    # Cholesky decomposition of empirical return correlation matrix
+    corr_matrix = aligned_returns.corr().to_numpy(dtype=np.float64)
+    corr_matrix += np.eye(corr_matrix.shape[0]) * 1e-5  # small regularization for PD guarantee
+    residual_cholesky = np.linalg.cholesky(corr_matrix).astype(np.float32)
+
     return PreparedMarketData(
         reference_dates=reference_dates,
         target_dates=target_dates,
@@ -307,6 +313,7 @@ def prepare_marketgan_data(
         beta_hat=beta_hat.astype(np.float32),
         sigma_hat=sigma_hat.astype(np.float32),
         scalers=scalers,
+        residual_cholesky=residual_cholesky,
     )
 
 
@@ -506,12 +513,16 @@ class ResidualGenerator(nn.Module):
 
 
 class MarketGenerator(nn.Module):
-    def __init__(self, dimensions: ModelDimensions, config: MarketGANConfig):
+    def __init__(self, dimensions: ModelDimensions, config: MarketGANConfig, cholesky_L: Optional[np.ndarray] = None):
         super().__init__()
         self.dimensions = dimensions
         self.config = config
         self.coefficient_generator = SharedCoefficientGenerator(dimensions, config)
         self.residual_generator = ResidualGenerator(dimensions, config)
+        if cholesky_L is not None:
+            self.register_buffer("cholesky_L", torch.tensor(cholesky_L, dtype=torch.float32))
+        else:
+            self.register_buffer("cholesky_L", None)
 
     def sample_latent(
         self,
@@ -571,6 +582,11 @@ class MarketGenerator(nn.Module):
             latent_noise=z_coefficients,
         )
         residuals = self.residual_generator(covariates=covariates, latent_noise=z_residuals)
+        # Apply Cholesky transform to impose empirical cross-asset correlations
+        # residuals: (B, T, N) — each time-step row vector is transformed by L
+        # L @ z ~ N(0, C) when z ~ N(0, I), where C is the return correlation matrix
+        if self.cholesky_L is not None:
+            residuals = residuals @ self.cholesky_L.T
         generated_returns = self.compose_returns(
             alpha=coefficient_outputs["alpha"],
             beta=coefficient_outputs["beta"],
@@ -706,12 +722,12 @@ class MarketGANTrainer:
         fake_scores = self.critic(generated["generated_returns"], batch["covariates"], trim_warmup=True)
         adversarial_loss = -fake_scores.mean()
 
-        # Vol regularization — penalize when generated vol deviates from real vol
+        # Vol regularization — ratio loss is scale-invariant, applies equal pressure to all assets
         fake_trimmed = generated["generated_returns_trimmed"]                        # (B, T, N)
         real_trimmed = batch["real_returns"][:, self.config.warmup_period:, :]       # (B, T, N)
         fake_vol = fake_trimmed.std(dim=1)   # (B, N)
         real_vol = real_trimmed.std(dim=1)   # (B, N)
-        vol_penalty = ((fake_vol - real_vol) ** 2).mean()
+        vol_penalty = ((fake_vol / (real_vol + 1e-8) - 1.0) ** 2).mean()
 
         loss = adversarial_loss + self.config.vol_penalty_lambda * vol_penalty
         loss.backward()
