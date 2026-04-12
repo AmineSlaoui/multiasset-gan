@@ -1,0 +1,16 @@
+{
+  "mode": "sf_gen_loss",
+  "hidden_dim": 256,
+  "d_z": 10,
+  "t_l": 252,
+  "lr": 0.0005,
+  "batch_size": 128,
+  "epochs": 300,
+  "patience": 50,
+  "steps_per_epoch": 30,
+  "window": 126,
+  "seed": 42,
+  "save_dir": "results/ablation/C_sf_gen_loss",
+  "lambda_sf": 0.01,
+  "sf_warmup": 50
+}

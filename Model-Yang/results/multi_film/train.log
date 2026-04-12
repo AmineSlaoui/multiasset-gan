@@ -1,0 +1,49 @@
+[macro_film] all (60 assets) | device=cuda | seed=42
+  Loaded daily macro: (3963, 19) (['vix_level', 'vix_change', 'term_spread', 'term_level', 'credit_spread']...)
+  PCA: 19 features → 8 PCs (explained var: 0.803)
+  Regime detection: T=3773, window=504, step=21...
+  Regime detection complete.
+  Final covariate dim: 15 — ['pc_1', 'pc_2', 'pc_3', 'pc_4', 'pc_5', 'pc_6', 'pc_7', 'pc_8', 'regime_0', 'regime_1', 'regime_2', 'vix_level_z', 'realized_vol_20d_z', 'term_level_z', 'credit_level_z']
+  Computing rolling OLS: T=3773, N=60, K=5, window=126...
+    t=500/3773
+    t=1000/3773
+    t=1500/3773
+    t=2000/3773
+    t=2500/3773
+    t=3000/3773
+    t=3500/3773
+  Rolling OLS complete.
+  n_assets=60, K=5, d_cov=15
+  Train: 2890 windows | Val: 3142
+Training [macro_film] | T_L=252 | lr=0.0005
+  G: 2,646,240 params
+  D: 1,799,425 params
+----------------------------------------------------------------------
+Epoch   1/300 | D=4.9512 G=1.8032 | frob=24.6863 (best=inf) | 19.3s
+Epoch   2/300 | D=0.3333 G=3.8679 | frob=28.1351 (best=24.6863) | 18.7s
+Epoch   3/300 | D=0.2032 G=9.0471 | frob=22.9911 (best=24.6863) | 18.7s
+Epoch   4/300 | D=0.1219 G=11.7055 | frob=25.6037 (best=22.9911) | 18.6s
+Epoch   5/300 | D=0.0766 G=13.1368 | frob=22.7652 (best=22.9911) | 18.6s
+Epoch   6/300 | D=0.0523 G=15.6429 | frob=23.0432 (best=22.7652) | 18.7s
+Epoch   7/300 | D=0.0457 G=16.7255 | frob=17.8653 (best=22.7652) | 18.7s
+Epoch   8/300 | D=0.0360 G=17.9764 | frob=17.0644 (best=17.8653) | 18.2s
+Epoch   9/300 | D=0.0189 G=20.2786 | frob=14.9918 (best=17.0644) | 18.6s
+Epoch  10/300 | D=0.0304 G=24.7524 | frob=13.5419 (best=14.9918) | 18.7s
+Epoch  11/300 | D=0.0143 G=27.0781 | frob=13.6792 (best=13.5419) | 18.7s
+Epoch  12/300 | D=0.0185 G=25.9563 | frob=13.7060 (best=13.5419) | 18.5s
+Epoch  13/300 | D=0.0171 G=26.8673 | frob=15.4106 (best=13.5419) | 18.5s
+Epoch  14/300 | D=0.0153 G=27.2825 | frob=14.7269 (best=13.5419) | 18.5s
+Epoch  15/300 | D=0.0135 G=28.4179 | frob=12.7440 (best=13.5419) | 18.6s
+Epoch  16/300 | D=0.0138 G=31.8747 | frob=12.8962 (best=12.7440) | 18.6s
+Epoch  17/300 | D=0.0057 G=33.4463 | frob=12.2843 (best=12.7440) | 18.6s
+Epoch  18/300 | D=0.0123 G=32.9846 | frob=11.4879 (best=12.2843) | 18.5s
+Epoch  19/300 | D=0.0121 G=32.0753 | frob=12.4198 (best=11.4879) | 18.7s
+Epoch  20/300 | D=0.0098 G=33.3305 | frob=12.3677 (best=11.4879) | 18.5s
+Epoch  21/300 | D=0.0110 G=31.8439 | frob=12.5754 (best=11.4879) | 18.6s
+Epoch  22/300 | D=0.0162 G=32.2516 | frob=12.2060 (best=11.4879) | 18.6s
+Epoch  23/300 | D=0.0149 G=30.1750 | frob=12.2420 (best=11.4879) | 18.7s
+Epoch  24/300 | D=0.0148 G=29.0354 | frob=13.5115 (best=11.4879) | 18.5s
+Epoch  25/300 | D=0.0100 G=30.5069 | frob=12.1544 (best=11.4879) | 18.5s
+Epoch  26/300 | D=0.0106 G=29.2192 | frob=11.4708 (best=11.4879) | 18.6s
+Epoch  27/300 | D=0.0114 G=30.7250 | frob=13.2875 (best=11.4708) | 18.5s
+Epoch  28/300 | D=0.0110 G=33.7952 | frob=11.7546 (best=11.4708) | 18.6s
