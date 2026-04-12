@@ -19,13 +19,15 @@
 # - Critique: TCN avec `160` canaux.
 # - Procedure d'entrainement prevue: `WGAN-GP`.
 #
-# Par defaut, si aucun fichier de facteurs n'est fourni, le notebook construit un facteur proxy en prenant la moyenne cross-sectionnelle des rendements. Pour coller strictement au papier, remplace ce proxy par tes facteurs observes quand on branchera le training.
+# Par defaut, la preparation attend un fichier de facteurs Fama-French. Le proxy de marche reste disponible uniquement comme fallback explicite via `factor_model="proxy"`.
 
 # %%
 from __future__ import annotations
 
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
+import re
 from typing import Dict, Optional, Sequence, Tuple
 
 import random
@@ -48,6 +50,18 @@ def resolve_repo_root(start: Optional[Path] = None) -> Path:
 
 REPO_ROOT = resolve_repo_root()
 DATA_ROOT = REPO_ROOT / 'data'
+FACTOR_ROOT = DATA_ROOT / 'factors'
+DEFAULT_FAMA_FRENCH_PATH = FACTOR_ROOT / "fama_french_daily.csv"
+FAMA_FRENCH_DEFAULT_COLUMNS: Tuple[str, ...] = ("Mkt-RF", "SMB", "HML")
+FAMA_FRENCH_COLUMN_ALIASES = {
+    "MKTRF": "Mkt-RF",
+    "MKTEXCESS": "Mkt-RF",
+    "MKTMINUSRF": "Mkt-RF",
+    "RMRF": "Mkt-RF",
+    "SMB": "SMB",
+    "HML": "HML",
+    "RF": "RF",
+}
 
 
 def set_seed(seed: int = 42) -> None:
@@ -89,7 +103,8 @@ class ModelDimensions:
 class MarketGANConfig:
     returns_path: Path = DATA_ROOT / "all_assets_log_returns.csv"
     macro_path: Path = DATA_ROOT / "macro" / "macro_conditioning_features.csv"
-    factor_path: Optional[Path] = None
+    factor_model: str = "famafrench"
+    factor_path: Optional[Path] = DEFAULT_FAMA_FRENCH_PATH
     rolling_window: int = 252
     generator_blocks: int = 6
     generator_channels: int = 80
@@ -174,10 +189,17 @@ def load_time_series_csv(path: Path) -> pd.DataFrame:
     frame.columns = [str(column).strip() for column in frame.columns]
     if "Date" not in frame.columns:
         raise ValueError(f"Expected a Date column in {path}.")
-    frame["Date"] = pd.to_datetime(frame["Date"])
+    frame["Date"] = parse_date_column(frame["Date"])
     frame = frame.sort_values("Date").set_index("Date")
     frame = frame[~frame.index.duplicated(keep="last")]
     return frame.apply(pd.to_numeric, errors="coerce")
+
+
+def parse_date_column(values: pd.Series) -> pd.Series:
+    stripped = values.astype(str).str.strip()
+    if len(stripped) > 0 and stripped.str.fullmatch(r"\d{8}").all():
+        return pd.to_datetime(stripped, format="%Y%m%d")
+    return pd.to_datetime(values)
 
 
 def align_covariates_to_returns(covariates: pd.DataFrame, target_index: pd.DatetimeIndex) -> pd.DataFrame:
@@ -189,25 +211,122 @@ def build_market_factor_proxy(returns_frame: pd.DataFrame, column_name: str = "m
     return returns_frame.mean(axis=1).rename(column_name).to_frame()
 
 
+def normalize_factor_name(column_name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "", str(column_name)).upper()
+
+
+def looks_like_date_token(value: str) -> bool:
+    return bool(
+        re.fullmatch(r"\d{8}", value)
+        or re.fullmatch(r"\d{4}-\d{2}-\d{2}", value)
+        or re.fullmatch(r"\d{4}/\d{2}/\d{2}", value)
+        or re.fullmatch(r"\d{1,2}/\d{1,2}/\d{4}", value)
+    )
+
+
+def canonicalize_fama_french_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    renamed_columns = {
+        column: FAMA_FRENCH_COLUMN_ALIASES.get(normalize_factor_name(column), str(column).strip())
+        for column in frame.columns
+    }
+    factors = frame.rename(columns=renamed_columns)
+    factors = factors.apply(pd.to_numeric, errors="coerce")
+    if not factors.empty:
+        scale_reference = factors.abs().quantile(0.99).max()
+        if pd.notna(scale_reference) and scale_reference > 1.0:
+            factors = factors / 100.0
+    return factors
+
+
+def load_fama_french_csv(path: Path) -> pd.DataFrame:
+    try:
+        raw_text = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        raw_text = path.read_text(encoding="latin-1")
+
+    lines = raw_text.splitlines()
+    header_index = next(
+        (
+            line_index
+            for line_index, line in enumerate(lines)
+            if "Mkt-RF" in line and "SMB" in line and "HML" in line
+        ),
+        None,
+    )
+    if header_index is None:
+        return canonicalize_fama_french_frame(load_time_series_csv(path))
+
+    data_lines: list[str] = []
+    for line in lines[header_index:]:
+        if not line.strip():
+            if len(data_lines) > 1:
+                break
+            continue
+        if not data_lines:
+            data_lines.append(line)
+            continue
+
+        first_field = line.split(",", 1)[0].strip()
+        if first_field.lower() == "date" or looks_like_date_token(first_field):
+            data_lines.append(line)
+            continue
+        break
+
+    if len(data_lines) <= 1:
+        raise ValueError(f"Could not parse daily Fama-French factors from {path}.")
+
+    frame = pd.read_csv(StringIO("\n".join(data_lines)))
+    frame = frame.rename(columns={frame.columns[0]: "Date"})
+    frame["Date"] = parse_date_column(frame["Date"])
+    frame = frame.sort_values("Date").set_index("Date")
+    frame = frame[~frame.index.duplicated(keep="last")]
+    return canonicalize_fama_french_frame(frame)
+
+
 def prepare_factor_frame(
     returns_frame: pd.DataFrame,
     factor_frame: Optional[pd.DataFrame] = None,
     factor_path: Optional[Path] = None,
     factor_columns: Optional[Sequence[str]] = None,
+    factor_model: str = "famafrench",
 ) -> pd.DataFrame:
+    factor_model = factor_model.strip().lower()
+    if factor_model not in {"famafrench", "proxy"}:
+        raise ValueError(f"Unsupported factor_model={factor_model!r}.")
+
     if factor_frame is not None:
         factors = factor_frame.copy()
         if "Date" in factors.columns:
-            factors["Date"] = pd.to_datetime(factors["Date"])
+            factors["Date"] = parse_date_column(factors["Date"])
             factors = factors.sort_values("Date").set_index("Date")
     elif factor_path is not None:
-        factors = load_time_series_csv(Path(factor_path))
-    else:
+        factor_path = Path(factor_path)
+        if not factor_path.exists():
+            raise FileNotFoundError(
+                f"Factor file not found: {factor_path}. Place the daily Fama-French CSV there or override config.factor_path."
+            )
+        loader = load_fama_french_csv if factor_model == "famafrench" else load_time_series_csv
+        factors = loader(factor_path)
+    elif factor_model == "proxy":
         factors = build_market_factor_proxy(returns_frame)
+    else:
+        raise ValueError(
+            "No Fama-French factor data provided. Pass factor_frame, set config.factor_path to a daily "
+            "Fama-French file, or switch config.factor_model='proxy' if you explicitly want the market proxy."
+        )
 
-    factors = factors.apply(pd.to_numeric, errors="coerce")
+    if factor_model == "famafrench":
+        factors = canonicalize_fama_french_frame(factors)
+        if factor_columns is None:
+            factor_columns = FAMA_FRENCH_DEFAULT_COLUMNS
+    else:
+        factors = factors.apply(pd.to_numeric, errors="coerce")
+
     factors = factors[~factors.index.duplicated(keep="last")]
     if factor_columns is not None:
+        missing_columns = [column for column in factor_columns if column not in factors.columns]
+        if missing_columns:
+            raise ValueError(f"Missing factor columns: {missing_columns}. Available columns: {list(factors.columns)}")
         factors = factors.loc[:, list(factor_columns)]
     return factors.sort_index()
 
@@ -270,6 +389,7 @@ def prepare_marketgan_data(
         factor_frame=factor_frame,
         factor_path=config.factor_path,
         factor_columns=factor_columns,
+        factor_model=config.factor_model,
     )
     factors_frame = factors_frame.reindex(returns_frame.index).ffill().bfill()
 
@@ -805,7 +925,7 @@ def run_smoke_test() -> None:
     print(f"Warmup trimmed from each sequence: {config.warmup_period}")
     print(f"Total sequence length expected by the trainer: {config.total_sequence_length}")
 
-    dummy_dimensions = ModelDimensions(num_assets=30, num_factors=1, num_covariates=8)
+    dummy_dimensions = ModelDimensions(num_assets=30, num_factors=3, num_covariates=8)
     generator = MarketGenerator(dummy_dimensions, config).to(config.device)
     critic = MarketCritic(dummy_dimensions, config).to(config.device)
 
