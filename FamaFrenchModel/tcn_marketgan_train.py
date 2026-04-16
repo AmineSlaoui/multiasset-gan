@@ -37,7 +37,7 @@ def count_parameters(module: torch.nn.Module) -> int:
 class TrainingRunConfig:
     num_epochs: int = 25
     train_fraction: float = 0.80
-    num_workers: int = 8
+    num_workers: int = 4
     pin_memory: bool = True
     show_progress: bool = True
     log_every_epoch: int = 1
@@ -134,6 +134,9 @@ def build_full_training_stack(
     )
     generator = MarketGenerator(prepared_data.dimensions, config).to(config.device)
     critic = MarketCritic(prepared_data.dimensions, config).to(config.device)
+    if hasattr(torch, "compile"):
+        generator = torch.compile(generator)
+        critic = torch.compile(critic)
     trainer = MarketGANTrainer(generator=generator, critic=critic, config=config)
     return prepared_data, dataset, train_dataset, validation_dataset, train_loader, validation_loader, generator, critic, trainer
 
@@ -557,12 +560,12 @@ if __name__ == "__main__":
     model_config = MarketGANConfig(
         batch_size=128,
         target_horizon=252 * 4,
-        learning_rate_generator=1e-3,
-        learning_rate_critic=1e-3,
+        learning_rate_generator=1e-4,
+        learning_rate_critic=1e-4,
         critic_steps=5,
     )
     run_config = TrainingRunConfig(
-        num_epochs=300,
+        num_epochs=200,
         train_fraction=0.875,
         checkpoint_every=10,
         run_name="marketgan_famafrench_run1",

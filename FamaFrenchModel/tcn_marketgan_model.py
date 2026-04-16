@@ -477,7 +477,7 @@ class CausalConv1d(nn.Module):
             dilation=dilation,
             padding=self.padding,
         )
-        nn.init.normal_(conv.weight, mean=0.0, std=0.5)
+        nn.init.normal_(conv.weight, mean=0.0, std=0.01)
         nn.init.zeros_(conv.bias)
         self.conv = weight_norm(conv)
 
@@ -504,7 +504,7 @@ class TemporalResidualBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
         if in_channels != out_channels:
             self.residual_projection = nn.Conv1d(in_channels, out_channels, kernel_size=1)
-            nn.init.normal_(self.residual_projection.weight, mean=0.0, std=0.5)
+            nn.init.normal_(self.residual_projection.weight, mean=0.0, std=0.01)
             nn.init.zeros_(self.residual_projection.bias)
         else:
             self.residual_projection = nn.Identity()
