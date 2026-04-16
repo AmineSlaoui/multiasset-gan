@@ -1,0 +1,2 @@
+epoch,train_critic_loss,train_critic_real_score,train_critic_fake_score,train_gradient_penalty,train_generator_loss,train_generator_score,train_vol_penalty,val_generator_loss,val_critic_real_score,val_critic_fake_score,val_wasserstein_estimate,val_mean_gap,val_vol_gap
+0,-7.980346317311262e+22,-72267714441.84616,-7.98524528535169e+22,4.89899752398968e+18,2.6536129887925317e+28,-8.198911173375971e+22,5.3072095775781934e+26,1.1142936802429275e+22,-45343883264.0,-1.1142936802429275e+22,1.1142936802429275e+22,41782687744.0,53154945024.0

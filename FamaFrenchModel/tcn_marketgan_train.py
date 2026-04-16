@@ -17,7 +17,7 @@ ROOT_DIR = Path(MODULE_FILE).resolve().parent.parent if MODULE_FILE else Path.cw
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from notebooks.TCN_marketgan_full_Lucas import (
+from FamaFrenchModel.tcn_marketgan_model import (
     REPO_ROOT,
     MarketCritic,
     MarketGANConfig,
@@ -49,6 +49,8 @@ class TrainingRunConfig:
     resume_checkpoint: Optional[Path] = None
     save_history_csv: bool = True
     plot_history: bool = True
+    fine_tune_epochs: int = 50
+    fine_tune_lr: float = 1e-4   # 1/10th of main learning rate per paper
 
     @property
     def run_dir(self) -> Path:
@@ -130,7 +132,7 @@ def build_full_training_stack(
         config=config,
         run_config=run_config,
     )
-    generator = MarketGenerator(prepared_data.dimensions, config, cholesky_L=prepared_data.residual_cholesky).to(config.device)
+    generator = MarketGenerator(prepared_data.dimensions, config).to(config.device)
     critic = MarketCritic(prepared_data.dimensions, config).to(config.device)
     trainer = MarketGANTrainer(generator=generator, critic=critic, config=config)
     return prepared_data, dataset, train_dataset, validation_dataset, train_loader, validation_loader, generator, critic, trainer
@@ -393,6 +395,70 @@ def train_market_gan(
     return history_frame
 
 
+def fine_tune_market_gan(
+    trainer: MarketGANTrainer,
+    fine_tune_loader: DataLoader,
+    prepared_data: PreparedMarketData,
+    model_config: MarketGANConfig,
+    run_config: TrainingRunConfig,
+) -> pd.DataFrame:
+    """Fine-tune on validation (most recent) data at 1/10th learning rate.
+
+    Per the MarketGAN paper: after main training, fine-tune on the validation
+    set so the model captures recent market dynamics that were excluded from
+    the main training loop.
+    """
+    ensure_directory(run_config.checkpoints_dir)
+
+    # Lower learning rate for both optimizers
+    for param_group in trainer.generator_optimizer.param_groups:
+        param_group["lr"] = run_config.fine_tune_lr
+    for param_group in trainer.critic_optimizer.param_groups:
+        param_group["lr"] = run_config.fine_tune_lr
+
+    print(f"\n── Fine-tuning for {run_config.fine_tune_epochs} epochs at lr={run_config.fine_tune_lr} ──")
+
+    history = []
+    for epoch in range(run_config.fine_tune_epochs):
+        trainer.generator.train()
+        trainer.critic.train()
+        epoch_rows = []
+
+        progress_bar = fine_tune_loader
+        if run_config.show_progress:
+            progress_bar = tqdm(fine_tune_loader, desc=f"Fine-tune {epoch + 1}/{run_config.fine_tune_epochs}")
+
+        for batch in progress_bar:
+            for _ in range(model_config.critic_steps):
+                critic_metrics = trainer.critic_step(batch)
+            generator_metrics = trainer.generator_step(batch)
+            epoch_rows.append({**critic_metrics, **generator_metrics})
+
+        epoch_metrics = {"epoch": epoch, **pd.DataFrame(epoch_rows).mean(numeric_only=True).to_dict()}
+        history.append(epoch_metrics)
+
+        if (epoch + 1) % run_config.log_every_epoch == 0:
+            print(f"  Fine-tune {epoch + 1}/{run_config.fine_tune_epochs} │ "
+                  f"critic: {epoch_metrics['critic_loss']:+.4f}  "
+                  f"gen: {epoch_metrics['generator_loss']:.4f}")
+
+    save_checkpoint(
+        trainer=trainer,
+        path=run_config.checkpoints_dir / "fine_tuned.pt",
+        epoch=run_config.fine_tune_epochs - 1,
+        history=history,
+        model_config=model_config,
+        run_config=run_config,
+        prepared_data=prepared_data,
+    )
+    print(f"Fine-tuned checkpoint saved → {run_config.checkpoints_dir / 'fine_tuned.pt'}")
+
+    history_frame = pd.DataFrame(history)
+    if run_config.save_history_csv:
+        history_frame.to_csv(run_config.run_dir / "fine_tune_history.csv", index=False)
+    return history_frame
+
+
 def get_window_dates(
     window_index: int,
     prepared_data: PreparedMarketData,
@@ -489,43 +555,27 @@ if __name__ == "__main__":
     
 
     model_config = MarketGANConfig(
-        batch_size=32,
+        batch_size=128,
         target_horizon=252 * 4,
-        learning_rate_generator=1e-4,
-        learning_rate_critic=1e-4,
-        critic_steps=3,
+        learning_rate_generator=1e-3,
+        learning_rate_critic=1e-3,
+        critic_steps=5,
     )
     run_config = TrainingRunConfig(
-        num_epochs=100,
-        train_fraction=0.80,
+        num_epochs=300,
+        train_fraction=0.875,
         checkpoint_every=10,
-        run_name="marketgan_run4_cholesky_ratiovol",
+        run_name="marketgan_famafrench_run1",
     )
 
     print("Device:", model_config.device)
 
-    # ── 3-factor model: equity / bond / commodity ─────────────────────────────
-    returns_raw = pd.read_csv(model_config.returns_path, parse_dates=["Date"]).set_index("Date")
-
-    EQUITY_COLS    = ["aapl", "amzn", "jnj", "jpm", "msft", "nflx", "nvda", "tsla", "v", "xom"]
-    BOND_COLS      = ["agg", "bnd", "emb", "hyg", "ief", "lqd", "mub", "shy", "tip", "tlt"]
-    COMMODITY_COLS = ["coffee", "copper", "corn", "crude_oil", "gold", "natural_gas", "platinum", "silver", "soybeans", "wheat"]
-
-    factor_frame = pd.DataFrame({
-        "equity_factor":    returns_raw[EQUITY_COLS].mean(axis=1),
-        "bond_factor":      returns_raw[BOND_COLS].mean(axis=1),
-        "commodity_factor": returns_raw[COMMODITY_COLS].mean(axis=1),
-    })
-    # Normalize factors to zero mean and unit std to avoid amplifying vol
-    factor_frame = (factor_frame - factor_frame.mean()) / factor_frame.std()
-
-    print("Factor frame shape:", factor_frame.shape)
-    print("Factors:", factor_frame.columns.tolist())
-
+    # ── Fama-French 3 factors (Mkt-RF, SMB, HML) loaded from factor_path ──────
+    # factor_frame=None → model loads from config.factor_path = data/factors/fama_french_daily.csv
     prepared_data, full_dataset, train_dataset, validation_dataset, train_loader, validation_loader, generator, critic, trainer = build_full_training_stack(
         config=model_config,
         run_config=run_config,
-        factor_frame=factor_frame,
+        factor_frame=None,
     )
 
     print("Assets:", prepared_data.dimensions.num_assets)
@@ -543,6 +593,18 @@ if __name__ == "__main__":
             trainer=trainer,
             train_loader=train_loader,
             validation_loader=validation_loader,
+            prepared_data=prepared_data,
+            model_config=model_config,
+            run_config=run_config,
+        )
+        # Load best checkpoint then fine-tune on validation (most recent) data
+        best_checkpoint = run_config.checkpoints_dir / "best.pt"
+        if best_checkpoint.exists():
+            load_checkpoint(trainer, best_checkpoint)
+            print(f"Loaded best checkpoint for fine-tuning: {best_checkpoint}")
+        fine_tune_market_gan(
+            trainer=trainer,
+            fine_tune_loader=validation_loader,
             prepared_data=prepared_data,
             model_config=model_config,
             run_config=run_config,

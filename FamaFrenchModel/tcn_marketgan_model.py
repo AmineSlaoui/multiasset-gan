@@ -101,8 +101,8 @@ class ModelDimensions:
 
 @dataclass
 class MarketGANConfig:
-    returns_path: Path = DATA_ROOT / "all_assets_log_returns.csv"
-    macro_path: Path = DATA_ROOT / "macro" / "macro_conditioning_features.csv"
+    returns_path: Path = DATA_ROOT / "stocks_log_returns.csv"
+    macro_path: Path = DATA_ROOT / "macro" / "welch_goyal_features.csv"
     factor_model: str = "famafrench"
     factor_path: Optional[Path] = DEFAULT_FAMA_FRENCH_PATH
     rolling_window: int = 252
@@ -110,8 +110,8 @@ class MarketGANConfig:
     generator_channels: int = 80
     generator_kernel_size: int = 2
     generator_dilation_base: int = 2
-    generator_dropout: float = 0.10
-    residual_blocks: int = 1
+    generator_dropout: float = 0.20
+    residual_blocks: int = 6
     residual_channels: int = 80
     residual_kernel_size: int = 1
     residual_dilation_base: int = 1
@@ -120,7 +120,7 @@ class MarketGANConfig:
     critic_channels: int = 160
     critic_kernel_size: int = 2
     critic_dilation_base: int = 2
-    critic_dropout: float = 0.10
+    critic_dropout: float = 0.20
     latent_dim: int = 10
     target_horizon: int = 252 * 4
     batch_size: int = 16
@@ -170,7 +170,6 @@ class PreparedMarketData:
     beta_hat: np.ndarray
     sigma_hat: np.ndarray
     scalers: Dict[str, ZScoreScaler]
-    residual_cholesky: np.ndarray  # (num_assets, num_assets) lower triangular Cholesky of return correlation matrix
 
     @property
     def dimensions(self) -> ModelDimensions:
@@ -415,11 +414,6 @@ def prepare_marketgan_data(
         scalers["covariates"] = ZScoreScaler.fit(aligned_covariates)
         aligned_covariates = scalers["covariates"].transform(aligned_covariates)
 
-    # Cholesky decomposition of empirical return correlation matrix
-    corr_matrix = aligned_returns.corr().to_numpy(dtype=np.float64)
-    corr_matrix += np.eye(corr_matrix.shape[0]) * 1e-5  # small regularization for PD guarantee
-    residual_cholesky = np.linalg.cholesky(corr_matrix).astype(np.float32)
-
     return PreparedMarketData(
         reference_dates=reference_dates,
         target_dates=target_dates,
@@ -433,7 +427,6 @@ def prepare_marketgan_data(
         beta_hat=beta_hat.astype(np.float32),
         sigma_hat=sigma_hat.astype(np.float32),
         scalers=scalers,
-        residual_cholesky=residual_cholesky,
     )
 
 
@@ -484,7 +477,7 @@ class CausalConv1d(nn.Module):
             dilation=dilation,
             padding=self.padding,
         )
-        nn.init.normal_(conv.weight, mean=0.0, std=0.01)
+        nn.init.normal_(conv.weight, mean=0.0, std=0.5)
         nn.init.zeros_(conv.bias)
         self.conv = weight_norm(conv)
 
@@ -511,7 +504,7 @@ class TemporalResidualBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
         if in_channels != out_channels:
             self.residual_projection = nn.Conv1d(in_channels, out_channels, kernel_size=1)
-            nn.init.normal_(self.residual_projection.weight, mean=0.0, std=0.01)
+            nn.init.normal_(self.residual_projection.weight, mean=0.0, std=0.5)
             nn.init.zeros_(self.residual_projection.bias)
         else:
             self.residual_projection = nn.Identity()
@@ -633,16 +626,12 @@ class ResidualGenerator(nn.Module):
 
 
 class MarketGenerator(nn.Module):
-    def __init__(self, dimensions: ModelDimensions, config: MarketGANConfig, cholesky_L: Optional[np.ndarray] = None):
+    def __init__(self, dimensions: ModelDimensions, config: MarketGANConfig):
         super().__init__()
         self.dimensions = dimensions
         self.config = config
         self.coefficient_generator = SharedCoefficientGenerator(dimensions, config)
         self.residual_generator = ResidualGenerator(dimensions, config)
-        if cholesky_L is not None:
-            self.register_buffer("cholesky_L", torch.tensor(cholesky_L, dtype=torch.float32))
-        else:
-            self.register_buffer("cholesky_L", None)
 
     def sample_latent(
         self,
@@ -702,11 +691,6 @@ class MarketGenerator(nn.Module):
             latent_noise=z_coefficients,
         )
         residuals = self.residual_generator(covariates=covariates, latent_noise=z_residuals)
-        # Apply Cholesky transform to impose empirical cross-asset correlations
-        # residuals: (B, T, N) — each time-step row vector is transformed by L
-        # L @ z ~ N(0, C) when z ~ N(0, I), where C is the return correlation matrix
-        if self.cholesky_L is not None:
-            residuals = residuals @ self.cholesky_L.T
         generated_returns = self.compose_returns(
             alpha=coefficient_outputs["alpha"],
             beta=coefficient_outputs["beta"],
