@@ -134,9 +134,6 @@ def build_full_training_stack(
     )
     generator = MarketGenerator(prepared_data.dimensions, config).to(config.device)
     critic = MarketCritic(prepared_data.dimensions, config).to(config.device)
-    if hasattr(torch, "compile"):
-        generator = torch.compile(generator)
-        critic = torch.compile(critic)
     trainer = MarketGANTrainer(generator=generator, critic=critic, config=config)
     return prepared_data, dataset, train_dataset, validation_dataset, train_loader, validation_loader, generator, critic, trainer
 
