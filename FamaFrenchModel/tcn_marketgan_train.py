@@ -350,7 +350,7 @@ def train_market_gan(
             prepared_data=prepared_data,
         )
 
-        current_validation_loss = epoch_metrics.get("val_generator_loss", math.inf)
+        current_validation_loss = epoch_metrics.get("val_vol_gap", math.inf)
         if current_validation_loss < best_validation_loss:
             best_validation_loss = current_validation_loss
             save_checkpoint(
