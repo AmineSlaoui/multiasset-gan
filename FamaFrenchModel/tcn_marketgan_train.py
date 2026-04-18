@@ -36,7 +36,9 @@ def count_parameters(module: torch.nn.Module) -> int:
 @dataclass
 class TrainingRunConfig:
     num_epochs: int = 25
-    train_fraction: float = 0.80
+    train_fraction: float = 0.75   # 75% train, 12.5% val, 12.5% test
+    val_fraction: float = 0.125    # val used for checkpoint selection + fine-tuning
+    # test_fraction = 1 - train_fraction - val_fraction = 0.125 (held out, final eval only)
     num_workers: int = 4
     pin_memory: bool = True
     show_progress: bool = True
@@ -70,47 +72,59 @@ def ensure_directory(path: Path) -> Path:
     return path
 
 
-def split_sequence_dataset(dataset: Dataset, train_fraction: float) -> Tuple[Subset, Subset]:
-    if not 0.0 < train_fraction < 1.0:
-        raise ValueError("train_fraction must lie strictly between 0 and 1.")
-    total_windows = len(dataset)
-    if total_windows < 2:
-        raise ValueError("Need at least two windows to create train and validation splits.")
+def split_sequence_dataset(
+    dataset: Dataset, train_fraction: float, val_fraction: float
+) -> Tuple[Subset, Subset, Subset]:
+    """Split dataset chronologically into train / val / test.
 
-    train_windows = max(1, int(total_windows * train_fraction))
-    train_windows = min(train_windows, total_windows - 1)
-    train_indices = list(range(train_windows))
-    validation_indices = list(range(train_windows, total_windows))
-    return Subset(dataset, train_indices), Subset(dataset, validation_indices)
+    train: first train_fraction of windows  → gradient updates
+    val:   next  val_fraction of windows    → checkpoint selection + fine-tuning
+    test:  remaining windows                → held-out, final evaluation only
+    """
+    test_fraction = 1.0 - train_fraction - val_fraction
+    if test_fraction <= 0.0:
+        raise ValueError("train_fraction + val_fraction must be < 1.0 to leave room for test.")
+    total = len(dataset)
+    if total < 3:
+        raise ValueError("Need at least 3 windows for a train/val/test split.")
+
+    train_end = max(1, int(total * train_fraction))
+    val_end   = max(train_end + 1, int(total * (train_fraction + val_fraction)))
+    val_end   = min(val_end, total - 1)
+
+    train_indices = list(range(train_end))
+    val_indices   = list(range(train_end, val_end))
+    test_indices  = list(range(val_end, total))
+    return Subset(dataset, train_indices), Subset(dataset, val_indices), Subset(dataset, test_indices)
 
 
-def build_train_validation_loaders(
+def build_data_loaders(
     dataset: Dataset,
     config: MarketGANConfig,
     run_config: TrainingRunConfig,
-) -> Tuple[Subset, Subset, DataLoader, DataLoader]:
-    train_dataset, validation_dataset = split_sequence_dataset(dataset, train_fraction=run_config.train_fraction)
+) -> Tuple[Subset, Subset, Subset, DataLoader, DataLoader, DataLoader]:
+    train_dataset, val_dataset, test_dataset = split_sequence_dataset(
+        dataset,
+        train_fraction=run_config.train_fraction,
+        val_fraction=run_config.val_fraction,
+    )
     pin_memory = bool(run_config.pin_memory and torch.cuda.is_available())
-    drop_last_train = len(train_dataset) >= config.batch_size
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=config.batch_size,
-        shuffle=True,
-        drop_last=drop_last_train,
-        num_workers=run_config.num_workers,
-        pin_memory=pin_memory,
-        persistent_workers=run_config.num_workers > 0,
-    )
-    validation_loader = DataLoader(
-        validation_dataset,
-        batch_size=config.batch_size,
-        shuffle=False,
-        drop_last=False,
-        num_workers=run_config.num_workers,
-        pin_memory=pin_memory,
-        persistent_workers=run_config.num_workers > 0,
-    )
-    return train_dataset, validation_dataset, train_loader, validation_loader
+
+    def _loader(ds, shuffle, drop_last):
+        return DataLoader(
+            ds,
+            batch_size=config.batch_size,
+            shuffle=shuffle,
+            drop_last=drop_last,
+            num_workers=run_config.num_workers,
+            pin_memory=pin_memory,
+            persistent_workers=run_config.num_workers > 0,
+        )
+
+    train_loader = _loader(train_dataset, shuffle=True,  drop_last=len(train_dataset) >= config.batch_size)
+    val_loader   = _loader(val_dataset,   shuffle=False, drop_last=False)
+    test_loader  = _loader(test_dataset,  shuffle=False, drop_last=False)
+    return train_dataset, val_dataset, test_dataset, train_loader, val_loader, test_loader
 
 
 def build_full_training_stack(
@@ -127,7 +141,7 @@ def build_full_training_stack(
         covariate_columns=covariate_columns,
     )
     dataset = MarketGANSequenceDataset(prepared_data, sequence_length=config.total_sequence_length)
-    train_dataset, validation_dataset, train_loader, validation_loader = build_train_validation_loaders(
+    train_dataset, val_dataset, test_dataset, train_loader, val_loader, test_loader = build_data_loaders(
         dataset=dataset,
         config=config,
         run_config=run_config,
@@ -135,7 +149,7 @@ def build_full_training_stack(
     generator = MarketGenerator(prepared_data.dimensions, config).to(config.device)
     critic = MarketCritic(prepared_data.dimensions, config).to(config.device)
     trainer = MarketGANTrainer(generator=generator, critic=critic, config=config)
-    return prepared_data, dataset, train_dataset, validation_dataset, train_loader, validation_loader, generator, critic, trainer
+    return prepared_data, dataset, train_dataset, val_dataset, test_dataset, train_loader, val_loader, test_loader, generator, critic, trainer
 
 
 def _trim_real_returns(batch: Dict[str, torch.Tensor], config: MarketGANConfig) -> torch.Tensor:
@@ -562,49 +576,52 @@ if __name__ == "__main__":
         critic_steps=5,
     )
     run_config = TrainingRunConfig(
-        num_epochs=200,
-        train_fraction=0.875,
+        num_epochs=300,
+        train_fraction=0.75,    # 75% train
+        val_fraction=0.125,     # 12.5% val  → checkpoint selection + fine-tuning
+        # test = remaining 12.5% → held-out, final evaluation only
         checkpoint_every=10,
-        run_name="marketgan_famafrench_run1",
+        run_name="marketgan_famafrench_50assets_run1",
     )
 
     print("Device:", model_config.device)
 
     # ── Fama-French 3 factors (Mkt-RF, SMB, HML) loaded from factor_path ──────
     # factor_frame=None → model loads from config.factor_path = data/factors/fama_french_daily.csv
-    prepared_data, full_dataset, train_dataset, validation_dataset, train_loader, validation_loader, generator, critic, trainer = build_full_training_stack(
+    prepared_data, full_dataset, train_dataset, val_dataset, test_dataset, train_loader, val_loader, test_loader, generator, critic, trainer = build_full_training_stack(
         config=model_config,
         run_config=run_config,
         factor_frame=None,
     )
 
-    print("Assets:", prepared_data.dimensions.num_assets)
-    print("Factors:", prepared_data.dimensions.num_factors)
-    print("Covariates:", prepared_data.dimensions.num_covariates)
-    print("Full windows:", len(full_dataset))
+    print("Assets     :", prepared_data.dimensions.num_assets)
+    print("Factors    :", prepared_data.dimensions.num_factors)
+    print("Covariates :", prepared_data.dimensions.num_covariates)
+    print("Full windows :", len(full_dataset))
     print("Train windows:", len(train_dataset))
-    print("Validation windows:", len(validation_dataset))
+    print("Val windows  :", len(val_dataset))
+    print("Test windows :", len(test_dataset), " ← held-out, not used until final eval")
     print("Generator parameters:", f"{count_parameters(generator):,}")
-    print("Critic parameters:", f"{count_parameters(critic):,}")
+    print("Critic parameters   :", f"{count_parameters(critic):,}")
     print("Run directory:", run_config.run_dir)
 
     if RUN_TRAINING:
         history_frame = train_market_gan(
             trainer=trainer,
             train_loader=train_loader,
-            validation_loader=validation_loader,
+            validation_loader=val_loader,
             prepared_data=prepared_data,
             model_config=model_config,
             run_config=run_config,
         )
-        # Load best checkpoint then fine-tune on validation (most recent) data
+        # Load best checkpoint then fine-tune on val (most recent training data)
         best_checkpoint = run_config.checkpoints_dir / "best.pt"
         if best_checkpoint.exists():
             load_checkpoint(trainer, best_checkpoint)
             print(f"Loaded best checkpoint for fine-tuning: {best_checkpoint}")
         fine_tune_market_gan(
             trainer=trainer,
-            fine_tune_loader=validation_loader,
+            fine_tune_loader=val_loader,
             prepared_data=prepared_data,
             model_config=model_config,
             run_config=run_config,
@@ -618,7 +635,7 @@ if __name__ == "__main__":
             load_checkpoint(trainer, best_checkpoint)
         sample_frames = generate_synthetic_sample(
             trainer=trainer,
-            dataset=validation_dataset,
+            dataset=val_dataset,
             prepared_data=prepared_data,
             dataset_index=0,
             trim_output=True,
