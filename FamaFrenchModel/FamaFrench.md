@@ -205,10 +205,11 @@ Cross-asset correlation structure is **not imposed explicitly**. The generator p
 
 ---
 
-## Training Run
+## Training Runs
 
-**Run name:** `marketgan_famafrench_run1`
-**Checkpoint dir:** `artifacts/marketgan_tcn/marketgan_famafrench_run1/checkpoints/`
+### Run 1 — 20 Assets (`marketgan_famafrench_20assets_run1`)
+
+**Checkpoint dir:** `artifacts/marketgan_tcn/marketgan_famafrench_20assets_run1/checkpoints/`
 
 | Property | Value |
 |----------|-------|
@@ -216,9 +217,31 @@ Cross-asset correlation structure is **not imposed explicitly**. The generator p
 | Total trading days | 3,171 |
 | Window length | 1,134 (127 warmup + 1,008 output) |
 | Total sliding windows | 2,038 |
-| Train windows | 1,783 (87.5%) |
-| Val windows | 255 (12.5%) |
+| Train windows | 1,783 (87.5%) — gradient updates only |
+| Val windows | 255 (12.5%) — clean OOS, no fine-tuning performed |
 | Batches per epoch | 13 (drop_last, batch_size=128) |
+
+No fine-tuning was run on this model — val was never used for gradient updates, so it serves as the honest out-of-sample test.
+
+---
+
+### Run 2 — 50 Assets (`marketgan_famafrench_50assets_run1`)
+
+**Checkpoint dir:** `artifacts/marketgan_tcn/marketgan_famafrench_50assets_run1/checkpoints/`
+
+| Property | Value |
+|----------|-------|
+| Window length | 1,134 (127 warmup + 1,008 output) |
+| Train windows | ~1,528 (75%) — gradient updates only |
+| Val windows | ~255 (12.5%) — checkpoint selection + fine-tuning |
+| Test windows | ~255 (12.5%) — held-out, never seen during training or fine-tuning |
+| Fine-tuning | 50 epochs on val at lr=1e-4 after main training |
+
+| Split | Used for | Clean OOS? |
+|-------|----------|------------|
+| Train (75%) | Gradient updates | No |
+| Val (12.5%) | Checkpoint selection + fine-tuning | No |
+| Test (12.5%) | Final evaluation only | **Yes** |
 
 ---
 
