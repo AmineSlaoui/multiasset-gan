@@ -1,0 +1,95 @@
+{
+  "config": {
+    "ckpts": [
+      "results/v9_roll2022/best_model.pt",
+      "results/v9_roll2023/best_model.pt",
+      "results/v9_s42/best_model.pt"
+    ],
+    "test_years": [
+      2023,
+      2024,
+      2025
+    ],
+    "n_paths": 200,
+    "rebal_freq": 21,
+    "seed": 42,
+    "out": "results/portfolio_rolling.json"
+  },
+  "yearly": [
+    {
+      "test_year": 2023,
+      "n_rebal": 11,
+      "target_vol": 0.005236417691266655,
+      "FB+shrunk": {
+        "ann_return": 0.01408874991928649,
+        "ann_vol": 0.022757551155917762,
+        "sharpe": 0.6190802262844929,
+        "max_drawdown": -0.018348817336356404,
+        "turnover": 0.14799097227858218
+      },
+      "SF-MG-R": {
+        "ann_return": 0.013603907070586329,
+        "ann_vol": 0.02271704077928169,
+        "sharpe": 0.5988415129752865,
+        "max_drawdown": -0.019326488574737177,
+        "turnover": 0.14623469946637452
+      }
+    },
+    {
+      "test_year": 2024,
+      "n_rebal": 12,
+      "target_vol": 0.004396812344983279,
+      "FB+shrunk": {
+        "ann_return": 0.015470611571192684,
+        "ann_vol": 0.019048473554306312,
+        "sharpe": 0.8121706722109092,
+        "max_drawdown": -0.0146242811872076,
+        "turnover": 0.11029025267603357
+      },
+      "SF-MG-R": {
+        "ann_return": 0.015836151452622467,
+        "ann_vol": 0.018883223920083743,
+        "sharpe": 0.8386360040871791,
+        "max_drawdown": -0.013691002748284609,
+        "turnover": 0.1118026916589686
+      }
+    },
+    {
+      "test_year": 2025,
+      "n_rebal": 11,
+      "target_vol": 0.005801124512346541,
+      "FB+shrunk": {
+        "ann_return": 0.028720830693876428,
+        "ann_vol": 0.017481952908683342,
+        "sharpe": 1.6428845703851942,
+        "max_drawdown": -0.00858343516205251,
+        "turnover": 0.171535280976908
+      },
+      "SF-MG-R": {
+        "ann_return": 0.02964501669291399,
+        "ann_vol": 0.01740642115923347,
+        "sharpe": 1.7031080899239528,
+        "max_drawdown": -0.00859325078637374,
+        "turnover": 0.17275557145305206
+      }
+    }
+  ],
+  "pooled": {
+    "n_days": 754,
+    "FB+shrunk": {
+      "sharpe": 0.9777760299348669,
+      "lo_se": 0.7028379300431309,
+      "ann_ret": 0.019421483885735346,
+      "ann_vol": 0.019862916753061618
+    },
+    "SF-MG-R": {
+      "sharpe": 0.9957784420038831,
+      "lo_se": 0.7070490219897845,
+      "ann_ret": 0.019689907202519147,
+      "ann_vol": 0.01977338168006088
+    },
+    "paired_diff_sharpe": 0.18603079526640348,
+    "paired_diff_se": 0.5781154786297455,
+    "paired_t_stat": 0.32178829687683735
+  }
+}
