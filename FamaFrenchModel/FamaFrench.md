@@ -31,7 +31,7 @@ python -m FamaFrenchModel.tcn_marketgan_train
 
 ## Asset Universe
 
-20 large-cap US equities (stocks only — per professor's instruction to scale test on single asset class first):
+20 large-cap US equities (stocks only):
 
 | Ticker | Company |
 |--------|---------|
