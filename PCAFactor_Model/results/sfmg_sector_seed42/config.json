@@ -1,0 +1,16 @@
+{
+  "version": "v9",
+  "seed": 42,
+  "hidden_dim": 256,
+  "num_blocks": 4,
+  "residual_rank": 4,
+  "eta_low": 0.01,
+  "eta_high": 0.1,
+  "eta_sigma_low": 0.05,
+  "eta_sigma_high": 0.2,
+  "lag_factors": true,
+  "factors_version": "v3",
+  "trainable_L_rho": false,
+  "n_factors": 16,
+  "d_cov": 15
+}
