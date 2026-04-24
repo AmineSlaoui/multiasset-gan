@@ -1,0 +1,29 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{When to Use Which Method}
+
+SF-MarketGAN-R is the recommended choice when the downstream task depends on macro-conditional correlation structure with correctly preserved \emph{stylized-facts} (temporal autocorrelation, volatility clustering, leverage effect)---stress-scenario construction, multi-asset portfolio risk, and cross-asset spillover analysis. Factor bootstrap with a correctly fitted residual Cholesky (FB+shrunk) is the strongest classical alternative and the reference baseline for any future comparison; it matches SF-MG-R on same-sector pair correlations (\S\ref{sec:pair_corr_baselines}) but falls short on the three structural stylized-fact metrics (Figure~\ref{fig:stylized_bars}).
+
+\subsection{Why Sector Factors Matter}
+
+A pure-PCA factor model is optimal for capturing \emph{principal} directions of covariation, but same-industry co-movement often appears as a mid-variance direction that PCA aggregates into a broader component. Under $K=11$ hierarchical PCA, Visa and Mastercard's common payments-industry signal lives in the residual space (training residual correlation $+0.57$), where a fixed Cholesky prior cannot track its test-period value of $+0.73$. Moving this signal into $\betahat$ through an explicit \textsc{Finance} sector factor cuts the training residual correlation to $+0.25$ and test to $+0.45$---close enough that the frozen training-sample $L_\rho$ is now a good out-of-sample approximation. The same mechanism explains the Gold--Silver improvement through \textsc{cmd\_precious}.
+
+\subsection{Why the Regime-Aware Correction Magnitude Matters}
+
+A single global $\eta$ is a compromise: a small $\eta$ stays close to rolling OLS and has little room to adapt under stress, while a large $\eta$ over-corrects in normal times. Our regime-conditional design resolves this by making the correction magnitude a function of the macro state: on normal-regime timesteps $z(t) \approx 0$ so $\eta_\alpha(t) \approx 0.01$ (tight prior, trusting OLS), while on stress-regime timesteps $z(t) \approx 1$ so $\eta_\alpha(t) \approx 0.10$ (loose prior, where the market itself is moving most). The model keeps the prior tight by default and only loosens it when the macro state says it should.
+
+\subsection{Limitations}
+\label{sec:limitations}
+
+\paragraph{Residual Cholesky is fixed, not learned.}
+Three independent attempts to make $L_\rho$ an $\mathrm{nn.Parameter}$ all degraded the model (Appendix~\ref{app:L_rho_ablation}): the discriminator saturates to zero output for our factor-structured generator, so $L_\rho$'s $\binom{60}{2} = 1770$ free parameters receive only noise gradient. Making $L_\rho$ trainable would likely require a direct Frobenius regulariser $\|L_\rho L_\rho^\top - C_{\text{train}}\|_F^2$ or a periodically frozen discriminator---both architectural changes outside the scope of this paper.
+
+\paragraph{Cross-regime transfer.}
+The training distribution covers COVID-style liquidity shock (2020), recovery (2021), rate-hike shock (2022), and high-rate/high-inflation shock (2023). A qualitatively different future shock---say, a credit-spread-driven stress without an accompanying yield-curve move---lies outside this support. Extending the regime encoder with an explicit regime-taxonomy auxiliary loss to generalise across shock types is a concrete direction for future work.
+
+\paragraph{Sector taxonomy is US-centric.}
+The stock sector buckets follow FF5 conventions on a US-equity universe; international extensions would require MSCI GICS labels and potentially more granular factors to cover emerging-market financials, healthcare differences across regulatory regimes, etc. Commodity GSCI sub-indices and bond duration/credit factors port naturally.
+
+\paragraph{Downstream portfolio evaluation.}
+GMV-portfolio construction experiments in the PCA specification are not re-run here under sector factors; we expect the directional result (SF-MG-R matches or slightly beats FB+shrunk on long-only GMV) to transfer since the regime mechanism is unchanged, but the exact Sharpe numbers will differ. A full sector portfolio re-benchmark is a natural follow-up.

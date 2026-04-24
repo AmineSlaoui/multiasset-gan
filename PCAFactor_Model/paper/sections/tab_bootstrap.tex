@@ -1,0 +1,18 @@
+\begin{table}[h]
+\centering
+\caption{Paired 95\% bootstrap confidence intervals (1000 asset-level replicates) for the SF-MarketGAN-R minus baseline metric difference on the 2025 OOS window. Negative interval = SF-MarketGAN-R is better; $p$ is the bootstrap probability that SF-MarketGAN-R beats the baseline on that metric. All intervals exclude zero in the negative direction, so every pairwise improvement is statistically significant at $95\%$.}
+\label{tab:bootstrap}
+\small
+\begin{tabular}{lccccccc}
+\toprule
+ & \multicolumn{3}{c}{vs.\ FB} & \multicolumn{3}{c}{vs.\ FB+shrunk} & vs.\ fixed-$\eta$ \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7}
+Metric & CI low & CI high & $p$ & CI low & CI high & $p$ & CI (wider) / $p$ \\
+\midrule
+CorrFrob & $-0.817$ & $-0.471$ & $1.00$ & $-0.689$ & $-0.368$ & $1.00$ & $[-0.630, -0.168]$, $1.00$ \\
+ACF      & $-0.037$ & $-0.009$ & $1.00$ & $-0.037$ & $-0.009$ & $1.00$ & $[-0.046, -0.010]$, $1.00$ \\
+VC       & $-0.059$ & $-0.018$ & $1.00$ & $-0.056$ & $-0.016$ & $1.00$ & $[-0.058, -0.016]$, $1.00$ \\
+LEV      & $-0.045$ & $-0.004$ & $0.99$ & $-0.044$ & $-0.004$ & $0.99$ & $[-0.036, -0.001]$, $0.98$ \\
+\bottomrule
+\end{tabular}
+\end{table}

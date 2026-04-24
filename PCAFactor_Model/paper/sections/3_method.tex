@@ -1,0 +1,93 @@
+\section{Method}
+\label{sec:method}
+
+\subsection{Factor Model Decomposition}
+
+We decompose daily log returns $r_t \in \R^N$ for $N=60$ assets as:
+\begin{equation}
+    r_{i,t} = \alphahat_{i,t} + \betahat_{i,t}^\top f_t + \sigmahat_{i,t} \cdot \varepsilon_{i,t}
+    \label{eq:factor_model}
+\end{equation}
+where $f_t \in \R^K$ are observable factors, $\alphahat_{i,t}$, $\betahat_{i,t}$, and $\sigmahat_{i,t}$ are rolling OLS estimates (126-day past window), and $\varepsilon_{i,t}$ is the standardised residual.
+
+\paragraph{Sector-augmented factor set ($K=16$).}
+We construct $K=16$ factors in four tiers, combining data-driven global structure with hand-labelled industry factors grounded in standard asset-pricing taxonomies:
+\begin{enumerate}
+\item \textbf{5 global PCA factors}. PCA on the full $N$-asset return matrix fitted on training data only. Captures shared dynamics across all three asset classes (explained variance $58.4\%$ on training).
+\item \textbf{2 bonds class-PCA factors}. PCA on bonds rows of the global-factor residuals. Retained only for bonds because fixed-income returns are driven by the two-factor level/slope structure of \citet{litterman1991common}, not by a GICS-style industry taxonomy (explained variance $76.6\%$ on training).
+\item \textbf{5 stock industry factors} (custom 5-bucket, Fama--French-inspired). We use \textsc{HiTec}, \textsc{Health}, \textsc{Finance}, \textsc{Consumer}, and \textsc{Energy}, assigning each of our 20 equities to exactly one bucket. The bucket boundaries follow Fama--French FF5 with one substantive deviation: we split \textsc{Finance} out of FF5's ``Other'' category so that payments processors (Visa, Mastercard) share a loading with banks (JPM) and diversified financials (BRK.B). Each factor is the equal-weight mean return of its bucket.
+\item \textbf{4 commodity GSCI sub-index factors}. Following S\&P GSCI methodology we group the pure single-commodity names into \textsc{Energy}, \textsc{Precious}, \textsc{Industrial}, and \textsc{Agriculture}; diversified commodity ETFs (DBC, GSG, DJP, PDBC, FTGC) are intentionally left unassigned and pick up multi-factor exposure through the OLS fit.
+\end{enumerate}
+
+\paragraph{Sequential Gram--Schmidt orthogonalisation and standardisation.}
+Raw equal-weight sector returns are strongly collinear both within-tier and with the global PCA factors. We process the 16 raw columns in priority order $[\text{global}, \text{bonds}, \text{stock sector}, \text{commodity sector}]$; for each column $k \ge 1$ we fit an intercept-inclusive OLS of column $k$ on columns $0,\ldots,k-1$ using \emph{training-period data only}, subtract the fitted values from the full series, and continue. A final step divides each column by its training-period standard deviation. On training data the off-diagonal correlation among the 16 factors is $0$ by construction; on the held-out test window all pairwise $|\text{corr}|$ remain below $0.05$. Standardisation produces $\beta$-magnitudes ($|\betahat| \approx 0.002$ in mean, $\le 0.033$ in max) that are numerically stable for rolling OLS on a 126-day window with $N/K \approx 3.8$.
+
+\paragraph{Why sector factors help OOS pair-correlation.}
+The industry factors specifically target same-sector pair correlations that the previous 11-factor hierarchical PCA design missed. Under our $K=11$ PCA specification, the Visa--Mastercard residual correlation on training was $+0.569$ (test: $+0.726$) because stocks class-PCA captures only generic market/size directions, not payments-industry co-movement. Under the 16-factor sector specification, the same pair's training residual correlation drops to $+0.249$ ($-56\%$) and test residual correlation to $+0.448$ ($-38\%$); the payments signal is now loaded onto \textsc{Finance}'s $\betahat$ rather than sitting in the residual space, where a fixed Cholesky prior cannot track it. Analogous reductions hold for Gold--Silver ($+0.424 \to +0.311$, precious metals) and other intra-sector high-correlation pairs.
+
+\paragraph{Macro covariates.}
+We use 15 macro conditioning variables: 8 PCA components from 19 daily macro features (VIX, term spread, credit spread, etc.), 3 Gaussian-mixture regime indicators, and 4 z-scored raw features (VIX level, realised volatility, term level, credit level). All scalers and PCA rotations are fit on training data.
+
+\subsection{Generator Architecture}
+
+At generation time we condition on \emph{strictly lagged} factors $f_{t-1}$, so the generator never sees the current day's market information. The decoder produces a synthetic return at day $t$ by correcting the factor-model estimate
+\begin{equation}
+    \hat{r}_{i,t} = \alphahat_{i,t}(1 + \delta^\alpha_{i,t}) + \betahat_{i,t}^\top f_{t-1} + \sigmahat_{i,t} \cdot e^{\delta^\sigma_{i,t}} \cdot \varepsilon_{i,t},
+    \label{eq:generator}
+\end{equation}
+where $\delta^\alpha_{i,t} = \eta_\alpha(t) \tanh(g_\alpha(h_t))$ and $\delta^\sigma_{i,t} = \eta_\sigma(t) \tanh(g_\sigma(h_t))$ are bounded corrections from a TCN backbone $h_t$. The rolling-OLS estimates $\alphahat_{i,t}, \betahat_{i,t}, \sigmahat_{i,t}$ are fit on the past window $[t-126, t)$; because the window is strictly past of $t$, $\betahat_t$ is itself strictly causal, and the inference-time use of $f_{t-1}$ against $\betahat_t$ is also strictly causal (see Appendix~\ref{app:leakage_audit}).
+
+Three deliberate design choices distinguish SF-MarketGAN from prior work:
+
+\paragraph{No beta correction.}
+Factor loadings $\betahat$ are used directly from rolling OLS without adversarial modification. Under the APT, $\beta$ reflects equilibrium factor exposure determined by economic fundamentals. A $\pm10\%$ multiplicative perturbation on both sides of a covariance pair can create $\sim\!20\%$ movement in cross-asset covariance, destructive for weak cross-class signals. Our ablation study (Section~\ref{sec:ablation}) confirms that removing beta correction improves OOS correlation fidelity.
+
+This design choice is compatible with---not contradicted by---the time-varying-$\beta$ line initiated by \citet{kelly2019ipca} and extended by \citet{gu2021autoencoder}. Those works address \emph{return prediction} and allow $\beta$ to be a function of instrument characteristics, not a free-form adversarial perturbation. Our setting is \emph{distribution generation}: we need cross-asset covariance structure rather than expected-return forecasts, and a correctly estimated rolling OLS $\beta$ is already close to optimal for that covariance. Our factor-structured generator claim is therefore narrower: given the same factor signal, do not allow an adversarial network to re-perturb a quantity the regression has already estimated well.
+
+\paragraph{No learned residual network.}
+Residuals $\varepsilon_t$ are \emph{not} generated by a neural network. Instead, we use:
+\begin{equation}
+    \varepsilon_t = L_\rho \cdot u_t, \quad u_t \sim \N(0, I_N)
+    \label{eq:shrunk_residual}
+\end{equation}
+where $L_\rho L_\rho^\top$ is the empirical correlation matrix of training-period factor residuals. Concretely, we compute the residuals $\tilde\varepsilon_{i,t} = r_{i,t} - \alphahat_{i,t} - \betahat_{i,t}^\top f_t$ across all training days $t \in [126, T_{\text{tr}})$, form the $N\times N$ sample Pearson correlation matrix, eigen-clip any negative eigenvalue to a small floor ($10^{-6}$), renormalise the diagonal to one, and take the Cholesky factor. The resulting $L_\rho$ is \emph{fixed} and not learned. No shrinkage toward identity is applied: the sector factor decomposition has already absorbed the bulk of the cross-asset common variation into $\betahat$, and any remaining structured residual correlation (e.g.\ V--MA's residual $+0.249$) is a genuine within-sector effect that a shrinkage prior would erroneously suppress.
+
+We verified empirically that making $L_\rho$ an $\mathrm{nn.Parameter}$ and training it adversarially degrades all headline metrics across multiple configurations (learning rates $10^{-6}$ to $10^{-4}$; with and without warm-start and freeze scheduling): the discriminator saturates to zero output for our generator, so $L_\rho$ receives only noise gradient and drifts away from its correct sample-estimate initialisation. Appendix~\ref{app:L_rho_ablation} reports the three failed attempts. $L_\rho$ is therefore fixed at its training-residual Cholesky in the reported model.
+
+\paragraph{TCN backbone with FiLM conditioning.}
+The shared backbone is a temporal convolutional network (TCN) with 4 causal residual blocks, exponentially increasing dilation ($2^0,\ldots,2^3$), and a receptive field of 31 trading days. Macro covariates enter through Feature-wise Linear Modulation (FiLM): $h \leftarrow \gamma \odot h + \beta$, where $\gamma, \beta$ are predicted from macro state at each timestep. This allows $\delta^\alpha$ and $\delta^\sigma$ to be regime-dependent.
+
+\subsection{Regime-Conditional Correction (SF-MarketGAN-R)}
+\label{sec:regime_method}
+The fixed-$\eta$ baseline above treats all timesteps identically: when $\eta$ is small, the generator stays close to rolling OLS and has little room to adapt under stress; when $\eta$ is large, it over-corrects in normal times. We therefore introduce a regime-conditional gate---the only addition relative to the baseline---and call this variant SF-MarketGAN-R.
+
+\paragraph{Regime encoder.}
+A small two-layer MLP $g(\text{cov}_t) \to z(t) \in [0, 1]$ maps the macro covariate vector to a soft stress indicator. The encoder is aligned to an interpretable target via an auxiliary binary cross-entropy loss:
+\begin{equation}
+    \mathcal{L}_\text{regime}(t) = \text{BCE}\!\left(z(t),\ \mathbf{1}\{\text{VIX}^z_t > 0.3\}\right),
+\end{equation}
+where $\text{VIX}^z_t$ is the 252-day rolling z-score of the VIX level.
+
+\paragraph{Regime-gated correction magnitude.}
+The bounds on $\delta^\alpha$ and $\delta^\sigma$ are no longer fixed; they interpolate between a ``normal'' and a ``stress'' regime:
+\begin{equation}
+    \eta_\alpha(t) = \eta_\alpha^\text{low} + z(t)\cdot(\eta_\alpha^\text{high} - \eta_\alpha^\text{low}),\qquad
+    \eta_\sigma(t) = \eta_\sigma^\text{low} + z(t)\cdot(\eta_\sigma^\text{high} - \eta_\sigma^\text{low}),
+\end{equation}
+with $(\eta_\alpha^\text{low},\eta_\alpha^\text{high}) = (0.01, 0.10)$ and $(\eta_\sigma^\text{low},\eta_\sigma^\text{high}) = (0.05, 0.20)$.
+
+\paragraph{Residual covariance.}
+Residuals use the fixed training-residual Cholesky $L_\rho$ defined above:
+\begin{equation}
+    \varepsilon_t = \sigmahat_t \odot L_\rho \cdot u_t,\qquad u_t \sim \N(0, I_N).
+\end{equation}
+We additionally include a regime-gated rank-$r$ correction $z(t) \cdot L_\Delta \cdot u_t^{(r)}$ with $L_\Delta$ an $N \times r$ learnable matrix initialised to zero ($r=4$). An $r=0$ ablation (Appendix~\ref{app:regime_diag}) shows $L_\Delta$ converges to an empirically near-zero matrix with no detectable improvement; we therefore report the $r=4$ specification for completeness but note that the contribution is not statistically separable from the factor + $L_\rho$ baseline.
+
+\subsection{Discriminator and Training}
+
+The discriminator uses the same TCN architecture. We train with WGAN-GP loss:
+\begin{align}
+    \mathcal{L}_D &= \E[D(r_{\text{fake}})] - \E[D(r_{\text{real}})] + 10 \cdot \E[(\|\nabla_{\tilde r} D(\tilde r)\|_2 - 1)^2] \\
+    \mathcal{L}_G &= -\E[D(r_{\text{fake}})] + \lambda_{\text{SF}} \cdot \mathcal{L}_{\text{SF}} + \lambda_\text{reg}\cdot\mathcal{L}_\text{regime}
+\end{align}
+where $\mathcal{L}_{\text{SF}}$ combines stylized-fact losses: correlation-matrix distance, volatility clustering (ACF of $r^2$), leverage effect (cross-correlation between $r_t$ and $r^2_{t+k}$), and tail co-dependence, with $\lambda_{\text{SF}}=20$ and a linear warm-up over the first $30$ epochs; $\mathcal{L}_\text{regime}$ is the auxiliary BCE on the regime encoder with $\lambda_\text{reg}=1$. The critic uses $n_{\text{critic}}=5$ inner steps per generator update. Hyperparameters: generator hidden dim $256$, $4$ dilated residual blocks, $\text{lr}=10^{-4}$ (Adam $\beta=(0,0.9)$ for both G and D), batch size $128$, gradient clip norm $1.0$.
