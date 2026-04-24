@@ -1,0 +1,37 @@
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Multi-asset financial data generation.}
+Generating realistic synthetic returns for multiple correlated assets has been approached from several angles. 
+Classical methods include multivariate GARCH models \citep{engle2002dynamic, bollerslev1988capital}, copula-based generators \citep{marti2020corrgan, marti2021ccorrgan}, and factor bootstrap methods that combine rolling parameter estimates with resampled residuals. 
+Among these, the factor bootstrap is surprisingly competitive: by decomposing returns into systematic (factor-driven) and idiosyncratic components, it preserves the cross-asset correlation structure without learning. 
+Our work uses the factor bootstrap as the primary baseline and shows that a GAN can improve upon it---but only when the GAN's learning is carefully constrained.
+
+\paragraph{GANs for financial time series.}
+Several recent works apply GANs to financial data. 
+MarketGAN \citep{huh2026marketgans} introduces a factor-structured generator with TCN backbone and WGAN-GP training, learning corrections to rolling OLS estimates of $\alpha$, $\beta$, and $\sigma$ simultaneously. 
+Fin-GAN \citep{vuletic2023fingen} focuses on supervised probabilistic forecasting for individual series. 
+Tail-GAN \citep{cont2025tailgan} targets tail-risk functionals via VaR/ES-shaped critics. 
+CorrGAN \citep{marti2020corrgan} and cCorrGAN \citep{marti2021ccorrgan} generate correlation matrices directly in the elliptope. 
+Our approach differs from all of these by demonstrating that the \emph{residual learning} component of financial GANs---typically considered essential---actually hurts OOS correlation fidelity. 
+We achieve better results by removing it entirely and using fixed residual covariance instead.
+
+\paragraph{Factor models in asset pricing.}
+Our architecture builds on the factor model tradition in finance. 
+The APT \citep{ross1976arbitrage} posits that returns are driven by a small number of common factors plus idiosyncratic noise. 
+Conditional factor models \citep{kelly2019characteristics} allow time-varying loadings and risk premia. 
+Stochastic volatility factor models \citep{pitt1999time, lopes2007factor} extend this to time-varying factor and idiosyncratic variances. 
+Our generator can be viewed as a parsimonious stochastic volatility factor model where the volatility dynamics are learned adversarially from macro covariates rather than specified parametrically.
+
+\paragraph{GAN training stability.}
+Training stability is a well-known challenge for GANs. 
+WGAN-GP \citep{gulrajani2017improved} uses gradient penalty for Lipschitz continuity, while spectral normalization \citep{miyato2018spectral} constrains the discriminator's spectral norm. 
+BigGAN \citep{brock2019large} uses orthogonal regularization to prevent mode collapse. 
+R1 gradient penalty \citep{mescheder2018training} offers an alternative to WGAN-GP. 
+We adopt SN-GAN with hinge loss, which constrains the discriminator through spectral normalization alone and trains reliably at $n_{\text{critic}}=1$ in our setting.
+
+\paragraph{Crisis transmission and correlation dynamics.}
+The literature on financial contagion informs our architectural choices. 
+\citet{forbes2002no} show that apparent crisis contagion largely reflects continuation of existing linkages through common channels, supporting our decision to route macro stress through factor corrections rather than residual networks. 
+\citet{longin2001extreme} demonstrate that correlations increase in bear markets specifically, not just in high-volatility periods. 
+These findings motivate our macro-conditioned volatility correction, which adjusts idiosyncratic risk based on current macro state.

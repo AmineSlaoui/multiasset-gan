@@ -1,0 +1,38 @@
+\section{Introduction}
+
+Synthetic financial data generation serves critical functions in quantitative finance: stress testing portfolios against scenarios that have never occurred, estimating risk metrics with larger sample sizes than history provides, and preserving privacy when sharing proprietary trading data.
+The challenge is acute for multi-asset portfolios, where generating realistic cross-asset dependence structures---correlations, tail co-movement, and volatility spillovers---is substantially harder than matching marginal distributions of individual assets.
+
+Traditional approaches fall into two camps.
+Parametric models such as DCC-GARCH \citep{engle2002dynamic} impose strong distributional assumptions that often fail to capture the nonlinear, regime-dependent dynamics of real markets.
+Non-parametric methods like factor bootstrap \citep{huh2026marketgans} preserve the empirical structure of historical data but cannot generate counterfactual scenarios conditioned on hypothetical macro states.
+Recent work on financial GANs, including MarketGAN \citep{huh2026marketgans} and related architectures \citep{vuletic2023fingen, cont2025tailgan}, attempts to bridge this gap by learning the full return-generating process adversarially.
+These models typically learn corrections to factor loadings ($\beta$), idiosyncratic volatilities ($\sigma$), and residual dynamics ($\varepsilon$) simultaneously.
+
+We find, however, that this full-learning approach systematically hurts OOS generalization.
+Ablations show two consistent patterns:
+(1)~learned residual networks inject spurious cross-class correlation that does not persist out of sample, and
+(2)~adversarial corrections to factor loadings distort the cross-asset covariance structure that rolling OLS already captures well.
+A third pattern emerges from a focused failure-mode study: purely data-driven (PCA) factor decompositions leave \emph{same-sector} pair co-movement in the residual space, and any fixed-Cholesky residual prior then becomes a bottleneck for those pairs specifically. For instance, with only global + within-class PCA factors, the Visa--Mastercard training-period residual correlation is $+0.57$ (out-of-sample $+0.73$); a shrinkage-toward-identity residual prior pushes this to $+0.17$, catastrophically underestimating the payments co-movement that a risk analyst cares most about.
+
+These observations motivate two coupled design choices: (i) a \emph{sector-augmented, Gram--Schmidt-orthogonalised} factor set that puts the same-sector common component into $\betahat$ rather than the residual; and (ii) a \emph{factor-structured generator} that restricts the adversarial component to quantities where classical estimators are demonstrably weak.
+
+\paragraph{Our contributions.}
+\begin{itemize}
+    \item \textbf{Sector-augmented factor decomposition (representation contribution).}
+    We extend the hierarchical PCA factor model of our prior MarketGAN work with 5 custom Fama--French-style stock industry factors (splitting \textsc{Finance} out of FF5's ``Other'' so Visa/Mastercard/JPM/BRK.B share a bucket) and 4 S\&P GSCI commodity sub-indices (\textsc{Energy}, \textsc{Precious}, \textsc{Industrial}, \textsc{Agriculture}), then apply sequential Gram--Schmidt orthogonalisation and unit-variance standardisation. The resulting $K=16$ factor panel has training off-diagonal correlation $0$ and $\beta$-magnitudes a factor of $40$ smaller than the raw (non-standardised) equal-weight sector means, making rolling OLS numerically stable at $N/K \approx 3.8$. Ablations (\S\ref{sec:ablation}) show this alone reduces OOS correlation Frobenius by $11\%$ relative to the 11-factor PCA-only baseline.
+
+    \item \textbf{Factor-structured generator (architectural contribution).}
+    We restrict generator capacity to macro-conditioned corrections on intercepts ($\alpha$) and idiosyncratic volatilities ($\sigma$) via a TCN backbone with FiLM conditioning. Factor loadings ($\beta$) are taken directly from rolling OLS. Residuals use a \emph{fixed} training-sample correlation Cholesky $L_\rho$ (not a shrinkage prior, not a learned network); Appendix~\ref{app:L_rho_ablation} reports three failed attempts to make $L_\rho$ adversarially trainable.
+
+    \item \textbf{Regime-gated correction schedule (mechanism contribution).}
+    A VIX-aligned encoder gates the magnitudes of the $(\alpha, \sigma)$-correction heads: a tight bound ($\eta_\alpha = 0.01$, $\eta_\sigma = 0.05$) in calm regimes, relaxed to $(\eta_\alpha = 0.10$, $\eta_\sigma = 0.20)$ under stress. The encoder is trained with an auxiliary BCE loss aligned to a hard VIX-z threshold, which we verify with a hard-threshold ablation.
+
+    \item \textbf{Main 60-asset OOS.}
+    Under strictly lagged factor conditioning ($f_{t-1}$), SF-MarketGAN-R achieves OOS correlation Frobenius $2.53$ vs.\ factor-bootstrap $3.36$ ($-24.6\%$) and shrinkage-prior baseline $3.12$ ($-18.8\%$), winning $4$ of $6$ evaluation metrics. The three stylized-fact metrics (ACF, vol-clustering, leverage) each improve by $10$--$13\%$ over the same-factor FB+shrunk baseline---a structural advantage that a better residual Cholesky alone cannot produce.
+
+    \item \textbf{Same-sector pair-correlation baseline comparison.}
+    We benchmark against $7$ classical and neural alternatives on six same-sector pairs covering payments, precious metals, Treasuries, energy, mega-tech, and cross-subgroup. Factor-bootstrap with an appropriately estimated residual Cholesky matches SF-MarketGAN-R on all six pairs within measurement noise---so the GAN's incremental value is \emph{not} on pair fidelity but on structural stylized-fact fit that no classical method approaches.
+\end{itemize}
+
+The rest of this paper is organised as follows. Section~\ref{sec:related} reviews related work. Section~\ref{sec:method} presents the model architecture and its theoretical motivation. Section~\ref{sec:experiments} reports experimental results including the pair-correlation baseline study, stylized-fact comparison, and ablations. Section~\ref{sec:conclusion} discusses limitations and future directions.
