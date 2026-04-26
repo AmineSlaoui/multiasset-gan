@@ -75,6 +75,15 @@ All data covers **January 2011 – December 2025** sourced from Yahoo Finance an
 
 ---
 
+## Results
+
+| Model | Checkpoints | Generated Returns | Plots |
+|---|---|---|---|
+| FamaFrench | `artifacts/marketgan_tcn/marketgan_famafrench_50assets_run1/checkpoints/` | `artifacts/marketgan_tcn/marketgan_famafrench_50assets_run1/generated_returns_*.csv` | `artifacts/marketgan_tcn/marketgan_famafrench_50assets_run1/eval_*.png` |
+| PCARegime | `PCAFactor_Model/results/sfmg_sector_seed42/best_model.pt` | `PCAFactor_Model/data/generated_returns_test.csv` | `PCAFactor_Model/figures/` |
+
+---
+
 ## Notebooks
 
 | Notebook | Purpose |
